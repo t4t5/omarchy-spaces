@@ -224,7 +224,8 @@ PanelWindow {
           required property int index
           readonly property bool hot: index === root.current
           readonly property bool home: modelData.id === "home"
-          readonly property bool letters: !home && !modelData.icon
+          readonly property bool imageIcon: !home && Spaces.isImageIcon(modelData.icon)
+          readonly property bool letters: !home && (!modelData.icon || imageIcon)
           readonly property color hue: home || !root.controller ? root.foreground
             : (Spaces.badgeColor(modelData.label, root.controller.palette) || root.foreground)
 
@@ -241,13 +242,29 @@ PanelWindow {
             width: root.badgeSize
             height: root.badgeSize
             radius: Math.round(root.badgeSize / 4)
-            color: Qt.rgba(item.hue.r, item.hue.g, item.hue.b, item.home ? 0.1 : 0.16)
+            color: Qt.rgba(item.hue.r, item.hue.g, item.hue.b, item.home || item.imageIcon ? 0.1 : 0.16)
+
+            Image {
+              id: badgeImage
+              visible: item.imageIcon && status === Image.Ready
+              anchors.fill: parent
+              anchors.margins: Math.max(2, Math.round(root.badgeSize * 0.1))
+              source: item.imageIcon ? Spaces.fileUrl(item.modelData.icon) : ""
+              fillMode: Image.PreserveAspectFit
+              smooth: true
+              mipmap: true
+              asynchronous: true
+              cache: true
+              sourceSize.width: root.badgeSize * 2
+              sourceSize.height: root.badgeSize * 2
+            }
 
             Text {
+              visible: !item.imageIcon || badgeImage.status !== Image.Ready
               anchors.centerIn: parent
               textFormat: Text.PlainText
               // A house (nf-md-home_outline).
-              text: item.home ? "\u{f06a1}" : item.modelData.icon || Spaces.monogram(item.modelData.label)
+              text: item.home ? "\u{f06a1}" : (!item.imageIcon && item.modelData.icon) || Spaces.monogram(item.modelData.label)
               color: item.hue
               font.family: Style.font.family
               font.pixelSize: Math.round(root.badgeSize * (item.letters ? 0.42 : 0.6))
