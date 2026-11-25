@@ -206,6 +206,12 @@ pub fn icon(target: Option<String>, new_icon: String) -> Result<()> {
     store.entry(&id).icon = new_icon.clone();
     store.save()?;
     match new_icon {
+        Some(new_icon) if new_icon.starts_with('/') => {
+            println!(
+                "Gave the space the icon {}",
+                paths::tilde(std::path::Path::new(&new_icon))
+            );
+        }
         Some(new_icon) => println!("Gave the space the icon {new_icon}"),
         None => println!("The space shows its letters again"),
     }

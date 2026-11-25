@@ -10,7 +10,7 @@ space go <space>             # go to a space where you left it
 space next                   # the space below the active one, wrapping around
 space prev                   # the space above it
 space rename [space] <name>  # name a space, the active one by default; "" for its folder's name
-space icon [space] <icon>    # a glyph or emoji for a space's badge, the active one by default; "" for its letters
+space icon [space] <icon>    # a glyph, emoji, or image file for a space's badge, the active one by default; "" for its letters
 space reorder <space> <n>    # move a space to position n in the sidebar, 1 being the first below home
 space close [space]          # close a space's windows, the active one by default
 ```

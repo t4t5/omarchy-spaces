@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, filterIcons, gridMove, isGlyph, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, headerOnBar, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, headerOnBar, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -310,12 +310,21 @@ test("takes any name up to 64 characters", () => {
   assert.equal(nameInput("x".repeat(64), "y"), "x".repeat(64))
 })
 
-test("tells glyphs from emojis", () => {
+test("tells glyphs from emojis and image files", () => {
   assert.equal(isGlyph("\u{f0415}"), true)
   assert.equal(isGlyph("\ue7a8"), true)
   assert.equal(isGlyph("🚀"), false)
   assert.equal(isGlyph("👩‍💻"), false)
+  assert.equal(isGlyph("/home/u/logo.png"), false)
   assert.equal(isGlyph(""), false)
+
+  assert.equal(isImageIcon("/home/u/logo.png"), true)
+  assert.equal(isImageIcon("🚀"), false)
+  assert.equal(isImageIcon(""), false)
+
+  assert.equal(fileUrl("/home/u/My Logo #1.png"), "file:///home/u/My%20Logo%20%231.png")
+  assert.equal(fileUrl("relative.png"), "")
+  assert.equal(fileUrl(""), "")
 })
 
 test("reads glyphs and emojis", () => {

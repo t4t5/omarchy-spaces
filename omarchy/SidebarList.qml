@@ -244,6 +244,7 @@ Item {
           // picker's cursor.
           readonly property bool picking: !!root.controller && root.controller.iconFor !== "" && root.controller.iconFor === modelData.id
           readonly property string icon: picking && root.controller.iconPreview ? root.controller.iconPreview : modelData.icon
+          readonly property bool imageIcon: !home && Spaces.isImageIcon(icon)
           readonly property bool home: modelData.id === "home"
           readonly property color hue: rowItem.home ? root.foreground
             : (Spaces.badgeColor(rowItem.modelData.label, root.controller ? root.controller.palette : Spaces.DEFAULT_PALETTE) || root.foreground)
@@ -277,7 +278,7 @@ Item {
             width: root.badgeSize
             height: root.badgeSize
             radius: root.sidebar.badgeRadius
-            color: Qt.rgba(rowItem.hue.r, rowItem.hue.g, rowItem.hue.b, rowItem.home ? 0.1 : 0.16)
+            color: Qt.rgba(rowItem.hue.r, rowItem.hue.g, rowItem.hue.b, rowItem.home || rowItem.imageIcon ? 0.1 : 0.16)
             opacity: rowItem.modelData.active ? 1 : 1 - 0.45 * (1 - root.expansion)
 
             // The space you're in, on the rail: bordered in the theme's
@@ -293,11 +294,27 @@ Item {
               border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6 * (1 - root.expansion))
             }
 
+            Image {
+              id: badgeImage
+              visible: rowItem.imageIcon && status === Image.Ready
+              anchors.fill: parent
+              anchors.margins: Math.max(2, Math.round(root.badgeSize * 0.1))
+              source: rowItem.imageIcon ? Spaces.fileUrl(rowItem.icon) : ""
+              fillMode: Image.PreserveAspectFit
+              smooth: true
+              mipmap: true
+              asynchronous: true
+              cache: true
+              sourceSize.width: root.badgeSize * 2
+              sourceSize.height: root.badgeSize * 2
+            }
+
             Glyph {
-              readonly property bool letters: !rowItem.home && !rowItem.icon
+              readonly property bool letters: !rowItem.home && (!rowItem.icon || rowItem.imageIcon)
+              visible: !rowItem.imageIcon || badgeImage.status !== Image.Ready
               anchors.fill: parent
               // A house (nf-md-home_outline).
-              text: rowItem.home ? "\u{f06a1}" : rowItem.icon || Spaces.monogram(rowItem.modelData.label)
+              text: rowItem.home ? "\u{f06a1}" : (!rowItem.imageIcon && rowItem.icon) || Spaces.monogram(rowItem.modelData.label)
               color: rowItem.hue
               opacity: rowItem.home ? 0.8 : 1
               font.family: root.fontFamily

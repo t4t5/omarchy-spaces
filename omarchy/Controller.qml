@@ -73,6 +73,8 @@ Item {
   property string iconFor: ""
   readonly property var iconRow: iconFor ? rows.find(function(row) { return row.id === iconFor }) || null : null
   property string iconPreview: ""
+  property string pickingFileFor: ""
+  readonly property string pickIconScript: String(Qt.resolvedUrl("pick-icon.py")).replace(/^file:\/\//, "")
 
   readonly property string home: Quickshell.env("HOME") || ""
   // The colours spaces' badges take, from the theme's colors.toml.
@@ -197,6 +199,32 @@ Item {
     var id = root.iconFor
     root.closeIconPicker()
     if (id && icon) root.run(["space", "icon", id, icon])
+  }
+
+  // Opens the native Files dialog (via xdg-desktop-portal) to pick a PNG/SVG
+  // logo for the space, closing the overlay first so the dialog takes focus.
+  function pickIconFromFile() {
+    var id = root.iconFor
+    if (!id || filePicker.running) return
+    root.closeIconPicker()
+    root.pickingFileFor = id
+    filePicker.command = ["python3", root.pickIconScript, id]
+    filePicker.running = true
+  }
+
+  Process {
+    id: filePicker
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var id = root.pickingFileFor
+        root.pickingFileFor = ""
+        var path = String(text || "").trim()
+        if (id && path) root.run(["space", "icon", id, path])
+      }
+    }
+    onExited: function(code) {
+      if (code !== 0) root.pickingFileFor = ""
+    }
   }
 
   // Takes the keyboard to type a name over the one a space has. A sidebar

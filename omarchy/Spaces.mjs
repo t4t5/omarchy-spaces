@@ -259,10 +259,23 @@ export function nameInput(name, text) {
 // ---------------------------------------------------------------- icons
 //
 // A space's badge can show an icon you pick in place of its letters: a Nerd
-// Font glyph, tinted in the badge's colour, or an emoji, in its own.
+// Font glyph, tinted in the badge's colour, an emoji, in its own, or a local
+// image file (png, svg, etc.).
+
+// Whether an icon is a local image file path rather than a glyph or emoji.
+export function isImageIcon(icon) {
+  return String(icon || "").startsWith("/")
+}
+
+// Turns an absolute local path into a file:// URL safe for QML Image.source.
+export function fileUrl(path) {
+  const raw = String(path || "")
+  if (!raw.startsWith("/")) return ""
+  return "file://" + raw.split("/").map(encodeURIComponent).join("/")
+}
 
 // Whether an icon is a Nerd Font glyph: every character in Unicode's private
-// use areas, where Nerd Fonts puts them. Anything else is an emoji.
+// use areas, where Nerd Fonts puts them. Anything else is an emoji or image.
 export function isGlyph(icon) {
   const chars = Array.from(String(icon || ""))
   return chars.length > 0 && chars.every((c) => {

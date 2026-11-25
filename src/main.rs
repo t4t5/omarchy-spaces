@@ -47,9 +47,9 @@ enum Cmd {
         #[arg(value_name = "NAME")]
         second: Option<String>,
     },
-    /// Give a space, the active one unless you say which, a glyph or an emoji
-    /// for its badge, in place of its letters. An empty icon brings the
-    /// letters back.
+    /// Give a space, the active one unless you say which, a glyph, an emoji, or
+    /// an image file for its badge, in place of its letters. An empty icon
+    /// brings the letters back.
     #[command(override_usage = "space icon [SPACE] <ICON>")]
     Icon {
         #[arg(value_name = "SPACE")]

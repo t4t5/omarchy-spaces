@@ -1525,6 +1525,15 @@ fn icon_shows_on_the_badge_until_cleared() {
     assert!(err.contains("can't have an icon"), "{err}");
     let err = env.fails(&["icon", "s1", "a b"]);
     assert!(err.contains("without spaces"), "{err}");
+
+    let logo = env.dir("notes").join("logo.png");
+    std::fs::write(&logo, b"\x89PNG").unwrap();
+    let canonical = std::fs::canonicalize(&logo).unwrap();
+    env.ok(&["icon", "notes", &logo.to_string_lossy()]);
+    assert_eq!(
+        env.ls_json()[1]["icon"],
+        canonical.to_string_lossy().as_ref()
+    );
 }
 
 #[test]
