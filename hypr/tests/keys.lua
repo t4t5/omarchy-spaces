@@ -85,11 +85,12 @@ equal(spaces.terminal(), "space terminal || omarchy-launch-terminal")
 equal(spaces.send_window("next"), "space window send 'next'")
 equal(spaces.send_window("prev", false), "space window send 'prev' --silent")
 equal(spaces.send_window("it's", true), "space window send 'it'\\''s'")
-equal(pcall(spaces.send_window), false)
 equal(spaces.send_tab("next"), "space tab send 'next'")
 
 -- The plugin's.
 local call = "omarchy-shell shell call com.t4t5.spaces "
+equal(spaces.send_window(), call .. "sendWindow ''")
+equal(spaces.send_window(nil, false), call .. "sendWindow 'silent'")
 equal(spaces.send_tab(), call .. "sendTab ''")
 equal(spaces.toggle_sidebar(), call .. "toggleSidebar ''")
 equal(spaces.rename_space(), call .. "renameSpace ''")

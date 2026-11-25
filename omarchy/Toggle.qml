@@ -45,6 +45,12 @@ Item {
     if (service) service.sendTab()
   }
 
+  // Pick a space to send the focused window to (pass 'silent' to stay put).
+  // Called through `omarchy-shell shell call com.t4t5.spaces sendWindow`.
+  function sendWindow(arg) {
+    if (service) service.sendWindow(arg)
+  }
+
   // What shows, for `just stress`. Called through `omarchy-shell shell call
   // com.t4t5.spaces shown`.
   function shown(arg) {

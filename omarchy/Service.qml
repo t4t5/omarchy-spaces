@@ -41,6 +41,7 @@ Item {
   function renameSpace() { controllerItem.renameSpace() }
   function renameTab() { controllerItem.renameTab("") }
   function sendTab() { controllerItem.sendTab() }
+  function sendWindow(mode) { controllerItem.sendWindow(mode === "silent") }
 
   // What the sidebar and the bars show, for `just stress` to check.
   function shown() {

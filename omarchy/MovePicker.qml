@@ -32,15 +32,19 @@ PanelWindow {
   readonly property int edge: Style.spacing.md
   readonly property int rowHeight: Math.max(Style.spacing.popupRowHeight, Style.font.body + Style.spacing.controlPaddingY * 2)
   readonly property int badgeSize: Math.round(rowHeight * 0.75)
+  readonly property bool windowMode: !!controller && controller.movingWindow
   // Nothing to move, or nowhere to move it.
   readonly property string note: {
-    if (!controller || !controller.menuTab) return ""
-    if (controller.menuTab.windows === 0) return "Nothing is open on this tab"
+    if (!controller) return ""
+    if (!root.windowMode) {
+      if (!controller.menuTab) return ""
+      if (controller.menuTab.windows === 0) return "Nothing is open on this tab"
+    }
     if (root.targets.length === 0) return "There are no other spaces"
     return root.shown.length === 0 ? "No space matches “" + root.query.trim() + "”" : ""
   }
 
-  visible: !!controller && controller.movingTab && !!controller.menuTab && !!controller.menuScreen
+  visible: !!controller && ((controller.movingTab && !!controller.menuTab) || controller.movingWindow) && !!controller.menuScreen
   screen: controller ? controller.menuScreen : null
   anchors { top: true; bottom: true; left: true; right: true }
   exclusionMode: ExclusionMode.Ignore
@@ -69,9 +73,19 @@ PanelWindow {
     if (count > 0) root.current = (root.current + by + count) % count
   }
 
-  function pick(index) {
+  function pick(index, silent) {
     var row = root.shown[index]
-    if (row && root.note === "") root.controller.sendTabTo(row.id)
+    if (!row || root.note !== "") return
+    if (root.windowMode) root.controller.sendWindowTo(row.id, silent === true)
+    else root.controller.sendTabTo(row.id)
+  }
+
+  // Maps 1-9 -> 0..8 and 0 -> 9 for instant top-to-bottom selection when the
+  // filter box is empty.
+  function quickSlot(key) {
+    if (key >= Qt.Key_1 && key <= Qt.Key_9) return key - Qt.Key_1
+    if (key === Qt.Key_0) return 9
+    return -1
   }
 
   // Anywhere outside the card closes it.
@@ -99,7 +113,9 @@ PanelWindow {
         root.move(1)
       } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
         // Not one held from picking "Move to space…".
-        if (!event.isAutoRepeat) root.pick(root.current)
+        if (!event.isAutoRepeat) root.pick(root.current, Boolean(event.modifiers & Qt.ShiftModifier))
+      } else if (root.query === "" && !ctrl && !(event.modifiers & Qt.ShiftModifier) && root.quickSlot(event.key) >= 0 && root.quickSlot(event.key) < root.shown.length) {
+        root.pick(root.quickSlot(event.key), false)
       } else if (Util.editsFilter(event, root.query)) {
         root.setQuery(Util.editedFilter(event, root.query))
       } else if (printable) {
@@ -190,7 +206,9 @@ PanelWindow {
             visible: root.query === ""
             leftPadding: Style.spacing.xxs
             textFormat: Text.PlainText
-            text: root.controller && root.controller.menuTab ? (root.controller.menuTab.slot > 0 ? "Move tab " + root.controller.menuTab.slot : "Move tab") + " to space" : ""
+            text: root.windowMode
+              ? (root.controller.moveWindowSilent ? "Move window silently to space" : "Move window to space")
+              : (root.controller && root.controller.menuTab ? (root.controller.menuTab.slot > 0 ? "Move tab " + root.controller.menuTab.slot : "Move tab") + " to space" : "")
             color: root.foreground
             opacity: 0.4
             font.family: Style.font.family
@@ -227,6 +245,7 @@ PanelWindow {
           readonly property bool letters: !home && !modelData.icon
           readonly property color hue: home || !root.controller ? root.foreground
             : (Spaces.badgeColor(modelData.label, root.controller.palette) || root.foreground)
+          readonly property string slotHint: root.query === "" && index < 10 ? String((index + 1) % 10) : ""
 
           width: list.width
           height: root.rowHeight
@@ -258,8 +277,8 @@ PanelWindow {
           Text {
             anchors.left: badge.right
             anchors.leftMargin: Style.spacing.controlGap
-            anchors.right: parent.right
-            anchors.rightMargin: Style.spacing.controlPaddingX
+            anchors.right: slotHintText.visible ? slotHintText.left : parent.right
+            anchors.rightMargin: slotHintText.visible ? Style.spacing.sm : Style.spacing.controlPaddingX
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: item.modelData.label
@@ -269,12 +288,26 @@ PanelWindow {
             elide: Text.ElideRight
           }
 
+          Text {
+            id: slotHintText
+            visible: item.slotHint !== ""
+            anchors.right: parent.right
+            anchors.rightMargin: Style.spacing.controlPaddingX
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            text: item.slotHint
+            color: item.hot ? Style.hoverStateColor(root.foreground, root.accent) : root.foreground
+            opacity: item.hot ? 0.7 : 0.4
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+          }
+
           MouseArea {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onPositionChanged: root.current = item.index
-            onClicked: root.pick(item.index)
+            onClicked: root.pick(item.index, false)
           }
         }
       }

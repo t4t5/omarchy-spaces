@@ -57,10 +57,12 @@ Item {
   // what it asks.
   property bool confirmingClose: false
   readonly property string closeWarning: Spaces.closeTabWarning(root.menuTab)
-  // Whether it has given way to picking a space to move the tab to
+  // Whether it has given way to picking a space to move a tab or window to
   // (MovePicker.qml), or a key opened that by itself, in the middle of the
   // screen; and the spaces to pick from.
   property bool movingTab: false
+  property bool movingWindow: false
+  property bool moveWindowSilent: false
   property bool moveCentered: false
   readonly property var moveTargets: root.rows.filter(function(row) { return row.id !== root.here.space })
   property real menuX: 0
@@ -73,6 +75,8 @@ Item {
   property string iconFor: ""
   readonly property var iconRow: iconFor ? rows.find(function(row) { return row.id === iconFor }) || null : null
   property string iconPreview: ""
+  property string pickingFileFor: ""
+  readonly property string pickIconScript: String(Qt.resolvedUrl("pick-icon.py")).replace(/^file:\/\//, "")
 
   readonly property string home: Quickshell.env("HOME") || ""
   // The colours spaces' badges take, from the theme's colors.toml.
@@ -128,6 +132,8 @@ Item {
     root.menuTabFor = ""
     root.confirmingClose = false
     root.movingTab = false
+    root.movingWindow = false
+    root.moveWindowSilent = false
     root.moveCentered = false
   }
 
@@ -160,6 +166,29 @@ Item {
     var target = root.menuTabFor
     root.closeMenu()
     if (target) root.run(["space", "tab", "send", target, id])
+  }
+
+  // Picks a space to send the focused window to, from the keyboard; again,
+  // it stops.
+  function sendWindow(silent) {
+    if (root.movingWindow) {
+      root.closeMenu()
+      return
+    }
+    root.placeMenu(0, 0, root.focusedScreen())
+    root.moveCentered = true
+    root.movingWindow = true
+    root.moveWindowSilent = silent === true
+  }
+
+  // Sends the focused window to a space, following unless `silent`.
+  function sendWindowTo(id, silent) {
+    var quiet = silent === true || root.moveWindowSilent
+    root.closeMenu()
+    if (!id) return
+    var args = ["space", "window", "send", id]
+    if (quiet) args.push("--silent")
+    root.run(args)
   }
 
   // Closes the tab whose menu is open, and its windows.
@@ -197,6 +226,32 @@ Item {
     var id = root.iconFor
     root.closeIconPicker()
     if (id && icon) root.run(["space", "icon", id, icon])
+  }
+
+  // Opens the native Files dialog (via xdg-desktop-portal) to pick a PNG/SVG
+  // logo for the space, closing the overlay first so the dialog takes focus.
+  function pickIconFromFile() {
+    var id = root.iconFor
+    if (!id || filePicker.running) return
+    root.closeIconPicker()
+    root.pickingFileFor = id
+    filePicker.command = ["python3", root.pickIconScript, id]
+    filePicker.running = true
+  }
+
+  Process {
+    id: filePicker
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var id = root.pickingFileFor
+        root.pickingFileFor = ""
+        var path = String(text || "").trim()
+        if (id && path) root.run(["space", "icon", id, path])
+      }
+    }
+    onExited: function(code) {
+      if (code !== 0) root.pickingFileFor = ""
+    }
   }
 
   // Takes the keyboard to type a name over the one a space has. A sidebar
