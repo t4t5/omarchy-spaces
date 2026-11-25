@@ -13,11 +13,17 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer};
+
+/// Hyprland 0.57+ omits `id` for named workspaces (`s1:1`, etc.).
+fn nullable_i64<'de, D: Deserializer<'de>>(deserializer: D) -> std::result::Result<i64, D::Error> {
+    Ok(Option::<i64>::deserialize(deserializer)?.unwrap_or(0))
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
+    #[serde(default, deserialize_with = "nullable_i64")]
     pub id: i64,
     pub name: String,
     #[serde(default)]
@@ -106,6 +112,7 @@ impl Monitor {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkspaceRef {
+    #[serde(default, deserialize_with = "nullable_i64")]
     pub id: i64,
     pub name: String,
 }
@@ -438,5 +445,35 @@ mod tests {
             close_window("0x55a4"),
             r#"hl.dsp.window.close({ window = "address:0x55a4" })"#
         );
+    }
+
+    #[test]
+    fn parses_hyprland_057_named_workspaces_without_id() {
+        let ws: Workspace = serde_json::from_str(
+            r#"{"address":"s1:1","type":"normal","name":"s1:1","monitor":"eDP-1","windows":1}"#,
+        )
+        .unwrap();
+        assert_eq!(ws.id, 0);
+        assert_eq!(ws.name, "s1:1");
+
+        let ws_null: Workspace =
+            serde_json::from_str(r#"{"id":null,"name":"s1:2","monitor":"eDP-1","windows":0}"#)
+                .unwrap();
+        assert_eq!(ws_null.id, 0);
+
+        let client: Client = serde_json::from_str(
+            r#"{"address":"0x55a4","pid":123,"workspace":{"address":"s1:1","type":"normal","name":"s1:1"}}"#,
+        )
+        .unwrap();
+        assert_eq!(client.workspace.id, 0);
+        assert_eq!(client.workspace.name, "s1:1");
+
+        let monitor: Monitor = serde_json::from_str(
+            r#"{"name":"eDP-1","x":0,"y":0,"width":1920,"height":1080,"scale":1.0,"activeWorkspace":{"address":"s1:1","type":"normal","name":"s1:1"}}"#,
+        )
+        .unwrap();
+        let shows = monitor.shows.unwrap();
+        assert_eq!(shows.id, 0);
+        assert_eq!(shows.name, "s1:1");
     }
 }

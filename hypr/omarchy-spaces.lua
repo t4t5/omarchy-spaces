@@ -80,7 +80,7 @@ local function tab_on(monitor, space)
   for _, workspace in ipairs(hl.get_workspaces()) do
     local at, key = locate(workspace)
     if at == space and workspace.monitor and workspace.monitor.name == monitor.name then
-      key = key or workspace.id
+      key = key or workspace.id or math.huge
       local focus = math.huge
       for _, window in ipairs(workspace:get_windows()) do
         local id = window.focus_history_id
