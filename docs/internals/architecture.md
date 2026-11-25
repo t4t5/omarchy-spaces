@@ -7,7 +7,7 @@ Spaces has three parts: a command in Rust, an Omarchy shell plugin in QML, and a
 It keeps no state about windows: it asks Hyprland over its socket, then dispatches.
 
 - **Terminals**: their folders and foreground programs come from their shells in `/proc`, as Omarchy's `omarchy-cmd-terminal-cwd` does. A terminal's program is the leader of the foreground process group on its shell's tty.
-- **Agents**: what an agent is doing, and the conversation it's in, come from its adapter in `src/agent/`. Claude Code's reads what it notes about each of its processes in `~/.claude/sessions/`, or in the `CLAUDE_CONFIG_DIR` that process has, as Omarchy's other accounts do.
+- **Agents**: what an agent is doing, and the conversation it's in, come from its adapter in `src/agent/`. Claude Code's reads what it notes about each of its processes in `~/.claude/sessions/`, or in the `CLAUDE_CONFIG_DIR` that process has, as Omarchy's other accounts do. Antigravity CLI's (`agy`) matches each process's open session file and reads its run status from `conversation_summaries.db`.
 - **Browsers**: what browser windows hold comes from an adapter in `src/browser/`. Chromium's reads the session files that it and those made from it keep open in their profile, matching them to Hyprland's windows by title, or the order they were opened in.
 
 Nothing else knows of any one agent or browser, so another is a new file there.

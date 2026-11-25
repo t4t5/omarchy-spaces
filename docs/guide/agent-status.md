@@ -12,7 +12,8 @@ A space shows whichever of its agents most needs you.
 
 ## Which agents show
 
-Claude Code works out of the box. Spaces reads what it notes about itself in `~/.claude/sessions/`, or that of the account it runs as, so there's nothing to set up.
+- **Claude Code** works out of the box. Spaces reads what it notes about itself in `~/.claude/sessions/`, or that of the account it runs as, so there's nothing to set up.
+- **Antigravity CLI (`agy`)** works out of the box. Spaces matches each running `agy` process to its open session lock and reads its run status from `conversation_summaries.db`.
 
 Other agents show as any program does, by name, without a status.
 
