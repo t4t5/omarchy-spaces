@@ -17,6 +17,13 @@ local function dispatcher(path)
 end
 
 local monitor = { name = "eDP-1", id = 0 }
+-- The workspaces there are, all on that monitor.
+local workspaces = {}
+local function tabs(space, count)
+  for key = 1, count do
+    workspaces[#workspaces + 1] = { name = space .. ":" .. key, monitor = monitor }
+  end
+end
 hl = {
   on = function() end,
   dsp = dispatcher(),
@@ -36,7 +43,7 @@ hl = {
     return { monitor }
   end,
   get_workspaces = function()
-    return {}
+    return workspaces
   end,
   get_workspace = function() end,
 }
@@ -104,6 +111,8 @@ equal(#dispatched, 0)
 
 -- In a space, its tabs.
 active = { name = "s1:1" }
+tabs("s1", 10)
+tabs("s12", 10)
 spaces.go_to_tab(3)()
 spaces.move_window_to_tab(4)()
 spaces.move_window_to_tab(5, false)()
@@ -145,6 +154,17 @@ equal(#dispatched, 3)
 active = { name = "s12:13" }
 spaces.go_to_tab(6)()
 equal(dispatched[4][2].workspace, "name:s12:6")
+
+-- Past the last tab, a new one after it: tabs have no gaps.
+workspaces = {}
+tabs("s1", 2)
+active = { name = "s1:2" }
+spaces.go_to_tab(6)()
+spaces.move_window_to_tab(9)()
+equal(dispatched[5][2].workspace, "name:s1:3")
+equal(dispatched[6][2].workspace, "name:s1:3")
+spaces.go_to_tab(2)()
+equal(dispatched[7][2].workspace, "name:s1:2")
 
 -- What `space` itself calls (src/hypr.rs).
 equal(type(spaces.internal.sync), "function")

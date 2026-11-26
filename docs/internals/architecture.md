@@ -36,6 +36,7 @@ It holds:
 - the keybind helpers (tab actions and plugin calls),
 - the hook that takes the other monitors along when you go to another space,
 - the hook that moves on from a tab emptied by closing its last window (`space emptied`),
+- the hook that numbers each space's tabs 1, 2, 3, … again as a workspace comes or goes (`space renumber`); the commands that can end a tab hold `.tabs.lock` while they run, so it waits for them,
 - the blur behind a glassy sidebar and bar.
 
 ## State

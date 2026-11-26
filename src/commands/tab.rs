@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 
 use super::space::{neighbour, switch};
 use super::{
-    SpaceTarget, focus, forget, moved, open_terminal_then, remember, session_selector,
+    SpaceTarget, focus, forget, hold_tabs, moved, open_terminal_then, remember, session_selector,
     session_workspace, take_turn,
 };
 use crate::hypr::{self, Hypr};
@@ -53,7 +53,7 @@ pub fn go_to_tab(target: Target) -> Result<()> {
     }
     let strip = Strip::new(&hypr.workspaces()?, space, &active, &Blocks::load());
     let key = match target {
-        Target::Slot(slot) => strip.at(slot),
+        Target::Slot(slot) => strip.reach(slot),
         Target::New => new_tab_in(&strip, [])?,
         Target::Next | Target::Prev => {
             match step_tab(target == Target::Next, &strip.keys(), here.key()) {
@@ -147,6 +147,7 @@ fn step_tab(forward: bool, open: &[u8], current: Option<u8>) -> Option<u8> {
 /// names you gave them, and you stay on the tab you're on.
 pub fn reorder_tab(tab: String, position: usize) -> Result<()> {
     let hypr = Hypr::from_env()?;
+    let _tabs = hold_tabs()?;
     let (mut store, rows, _) = live::lock_rows(Some(&hypr))?;
     if position == 0 {
         bail!("positions start at 1, the space's first tab");
@@ -370,6 +371,7 @@ pub fn rename_tab(tab: Option<String>, new_name: String) -> Result<()> {
 /// its only tab ends the space. `home` doesn't end: you stay on its last tab.
 pub fn close_tab(tab: Option<String>) -> Result<()> {
     let hypr = Hypr::from_env()?;
+    let _tabs = hold_tabs()?;
     let (rows, _) = live::load_rows(Some(&hypr))?;
     let active = hypr.active_workspace()?;
     let Tab { id, key, slot } = tab_or_active(&hypr, &rows, tab.as_deref(), &active)?;
@@ -430,6 +432,7 @@ pub fn send_tab(tab: Option<String>, to: SpaceTarget) -> Result<()> {
     let _turn = matches!(to, SpaceTarget::Next | SpaceTarget::Prev)
         .then(take_turn)
         .transpose()?;
+    let _tabs = hold_tabs()?;
     let (rows, _) = live::load_rows(Some(&hypr))?;
     let active = hypr.active_workspace()?;
     let here = name::locate(active.id, &active.name);
@@ -522,6 +525,11 @@ pub fn send_tab(tab: Option<String>, to: SpaceTarget) -> Result<()> {
         && !ended
     {
         remember(here.space(), left_at);
+    }
+    // Renamed into the other space, the tab didn't end as Hyprland sees it,
+    // which would have renumbered the ones it left.
+    if let Err(e) = renumber_tabs(&hypr) {
+        eprintln!("space: warning: {e:#}");
     }
     println!("Moved tab {slot} to '{label}'");
     Ok(())
@@ -683,6 +691,12 @@ fn leave_tab(hypr: &Hypr, id: &str, key: u8, from: &hypr::Workspace, focused: bo
 /// tab doesn't linger: see `leave_tab`. Nothing happens if things moved on
 /// since: no monitor shows that workspace, or something opened on it.
 pub fn emptied(workspace: &str) -> Result<()> {
+    let _tabs = hold_tabs()?;
+    emptied_held(workspace)
+}
+
+/// `emptied`, by a command already holding the tabs.
+pub(super) fn emptied_held(workspace: &str) -> Result<()> {
     let hypr = Hypr::from_env()?;
     let active = hypr.active_workspace()?;
     let workspaces = hypr.workspaces()?;
@@ -704,6 +718,95 @@ pub fn emptied(workspace: &str) -> Result<()> {
     leave_tab(&hypr, &id, key, emptied, focused)
 }
 
+/// `space renumber`, run by Hyprland (`hypr/omarchy-spaces.lua`) whenever a
+/// workspace comes or goes: numbers each space's tabs 1, 2, 3, ... on each
+/// monitor again, as a browser's are. A tab that ends, however it does (its
+/// last window closing, even unseen, or moving away, or the tab sent to
+/// another space), takes its number with it and the tabs after it move up.
+/// Each moves by renaming its workspace, which leaves its windows as they
+/// are, all between two frames. `home`'s tabs are Omarchy's numbered
+/// workspaces, which other things know by their numbers: they keep theirs.
+/// Nothing happens while a session is being restored, as that opens tabs by
+/// the numbers it saved.
+pub fn renumber() -> Result<()> {
+    let _tabs = hold_tabs()?;
+    let Some(_restoring) = session::lock_restore(&paths::state_dir())? else {
+        return Ok(());
+    };
+    renumber_tabs(&Hypr::from_env()?)
+}
+
+/// `renumber`, by a command already holding the tabs.
+fn renumber_tabs(hypr: &Hypr) -> Result<()> {
+    let mut open: BTreeMap<String, BTreeSet<u8>> = BTreeMap::new();
+    for ws in hypr.workspaces()? {
+        if let Location::Space { name, key } = name::locate(ws.id, &ws.name) {
+            open.entry(name).or_default().insert(key);
+        }
+    }
+    let moves: BTreeMap<String, BTreeMap<u8, u8>> = open
+        .iter()
+        .map(|(space, keys)| (space.clone(), closing_moves(keys)))
+        .filter(|(_, moves)| !moves.is_empty())
+        .collect();
+    if moves.is_empty() {
+        return Ok(());
+    }
+    // Lowest first, each into a number that's free by then.
+    let script: String = moves
+        .iter()
+        .flat_map(|(space, moves)| {
+            moves.iter().map(move |(from, to)| {
+                let rename = hypr::rename_workspace(
+                    &session_selector(space, *from),
+                    &session_workspace(space, *to),
+                );
+                format!("hl.dispatch({rename})\n")
+            })
+        })
+        .collect();
+    hypr.eval(&script)?;
+
+    // The names you gave them go along. Those of tabs that have ended go,
+    // so as not to land on another.
+    let mut store = Store::lock(&paths::state_dir())?;
+    for (space, moves) in &moves {
+        if let Some(entry) = store.spaces.get_mut(space) {
+            entry.tabs = std::mem::take(&mut entry.tabs)
+                .into_iter()
+                .filter(|(key, _)| open[space].contains(key))
+                .map(|(key, name)| (*moves.get(&key).unwrap_or(&key), name))
+                .collect();
+        }
+    }
+    store.save()?;
+    drop(store);
+    // Where you left each space is still the tab you left.
+    Last::update(&paths::state_dir(), |last| {
+        for (space, moves) in &moves {
+            last.renumber(space, moves);
+        }
+    })
+}
+
+/// Where each of a space's tabs, by key, moves to number them 1, 2, 3, ...
+/// in each monitor's block, in the order they're in. Those already in place
+/// aren't in it.
+fn closing_moves(keys: &BTreeSet<u8>) -> BTreeMap<u8, u8> {
+    let mut moves = BTreeMap::new();
+    let mut taken: BTreeMap<u8, u8> = BTreeMap::new();
+    for &key in keys {
+        let block = name::block_of(key);
+        let slot = taken.entry(block).or_insert(0);
+        *slot += 1;
+        let to = name::key_in(block, *slot);
+        if to != key {
+            moves.insert(key, to);
+        }
+    }
+    moves
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,6 +821,20 @@ mod tests {
         assert_eq!(step(true, &[1, 11, 3], Some(11)), Some(3), "as they show");
         assert_eq!(step(true, &[2], Some(2)), None, "only one tab");
         assert_eq!(step(true, &[2, 5], None), Some(2));
+    }
+
+    #[test]
+    fn closes_the_gaps_among_tabs() {
+        let moves = |keys: &[u8]| closing_moves(&keys.iter().copied().collect());
+        assert_eq!(moves(&[1, 2, 3]), BTreeMap::new(), "none");
+        assert_eq!(moves(&[1, 3, 4]), [(3, 2), (4, 3)].into());
+        assert_eq!(moves(&[2, 6]), [(2, 1), (6, 2)].into(), "from 1");
+        assert_eq!(
+            moves(&[1, 3, 12, 15]),
+            [(3, 2), (12, 11), (15, 12)].into(),
+            "each monitor's block apart"
+        );
+        assert_eq!(moves(&[]), BTreeMap::new());
     }
 
     #[test]

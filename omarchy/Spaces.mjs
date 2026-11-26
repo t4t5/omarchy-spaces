@@ -583,32 +583,104 @@ export function dragShift(index, from, to, pitch) {
   return 0
 }
 
+// The tabs as the bar shows them: each numbered tab after the numbers before
+// it that no tab has, as Omarchy shows its empty workspaces, faded. One empty
+// number shows as itself; two or more in a row as one `…`, which goes to the
+// first. Each is { tab, index } for the tab at `index`, or { gap, run,
+// before } for the empty number `gap` (the first of a run, if `run`) before
+// the tab at `before`. No gaps after the last tab, nor among those without a
+// number. Only `home`'s have gaps to show (`withGaps`): a space's tabs are
+// numbered again as one ends (`space renumber`), so a gap there is gone in a
+// moment.
+export function tabCells(tabs, withGaps) {
+  const cells = []
+  let last = 0
+  tabs.forEach((tab, index) => {
+    if (withGaps && tab.slot > 0) {
+      if (tab.slot > last + 1) cells.push({ gap: last + 1, run: tab.slot > last + 2, before: index })
+      last = Math.max(last, tab.slot)
+    }
+    cells.push({ tab, index })
+  })
+  return cells
+}
+
+// The room the empty numbers take before each tab, from the cells' widths and
+// the row's spacing: what a tab dragged over them passes as well.
+export function tabGaps(cells, widths, spacing) {
+  const gaps = []
+  let room = 0
+  cells.forEach((cell, i) => {
+    if (cell.tab) {
+      gaps.push(room)
+      room = 0
+    } else {
+      room += (widths[i] || 0) + spacing
+    }
+  })
+  return gaps
+}
+
 // How far a tab dragged `dx` from `from` goes, kept among the tabs, which are
-// `widths` wide and `spacing` apart.
-export function tabDragOffset(widths, from, dx, spacing) {
-  const along = (list) => list.reduce((sum, width) => sum + width + spacing, 0)
-  return Math.max(-along(widths.slice(0, from)), Math.min(along(widths.slice(from + 1)), dx))
+// `widths` wide and `spacing` apart, with `gaps` of empty numbers before
+// each.
+export function tabDragOffset(widths, from, dx, spacing, gaps) {
+  const gap = (i) => (gaps && gaps[i]) || 0
+  let left = 0
+  for (let i = 0; i < from; i++) left += widths[i] + spacing + gap(i + 1)
+  let right = 0
+  for (let i = from + 1; i < widths.length; i++) right += gap(i) + widths[i] + spacing
+  return Math.max(-left, Math.min(right, dx))
 }
 
 // Where it would drop: past each tab whose middle its leading edge has
 // crossed, as tabs aren't equally wide.
-export function tabDropIndex(widths, from, dx, spacing) {
+export function tabDropIndex(widths, from, dx, spacing, gaps) {
+  const gap = (i) => (gaps && gaps[i]) || 0
   let to = from
   let reach = 0
   if (dx > 0) {
     for (let i = from + 1; i < widths.length; i++) {
-      if (dx <= reach + spacing + widths[i] / 2) break
-      reach += spacing + widths[i]
+      if (dx <= reach + gap(i) + spacing + widths[i] / 2) break
+      reach += gap(i) + spacing + widths[i]
       to = i
     }
   } else {
     for (let i = from - 1; i >= 0; i--) {
-      if (-dx <= reach + spacing + widths[i] / 2) break
-      reach += spacing + widths[i]
+      if (-dx <= reach + gap(i + 1) + spacing + widths[i] / 2) break
+      reach += gap(i + 1) + spacing + widths[i]
       to = i
     }
   }
   return to
+}
+
+// How far each tab moves aside while the one at `from` is dragged to `to`,
+// and each tab's empty numbers before it: to where they will be once it
+// drops. The numbers stay with their places, as the tabs' numbers do, so
+// they move only as much as the tabs before them change width.
+export function tabShifts(widths, from, to, spacing, gaps) {
+  const count = widths.length
+  const none = { tabs: widths.map(() => 0), gaps: widths.map(() => 0) }
+  if (from < 0 || to < 0 || from === to) return none
+  const gap = (i) => (gaps && gaps[i]) || 0
+  const order = moveRow(widths.map((_, i) => i), from, to)
+  // Where each place starts, with the tabs in an order.
+  const starts = (list) => {
+    const out = []
+    let x = 0
+    for (let p = 0; p < count; p++) {
+      x += gap(p)
+      out.push(x)
+      x += widths[list[p]] + spacing
+    }
+    return out
+  }
+  const before = starts(widths.map((_, i) => i))
+  const after = starts(order)
+  const tabs = widths.map(() => 0)
+  order.forEach((tab, p) => { tabs[tab] = tab === from ? 0 : after[p] - before[tab] })
+  return { tabs, gaps: before.map((x, p) => gap(p) ? after[p] - x : 0) }
 }
 
 // The tabs once `space tab reorder` has moved the one at `from` to

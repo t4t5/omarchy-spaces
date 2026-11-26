@@ -94,6 +94,10 @@ enum Cmd {
     /// on: go to another tab, or end the space.
     #[command(hide = true)]
     Emptied { workspace: String },
+    /// Run by Hyprland as a workspace comes or goes: number each space's tabs
+    /// 1, 2, 3, ... again, closing the gap one that ended left.
+    #[command(hide = true)]
+    Renumber,
     /// Open, go to, name, arrange, close and move tabs. A tab is given by its
     /// id, as `space ls --json` shows it.
     #[command(subcommand)]
@@ -239,6 +243,7 @@ fn main() -> ExitCode {
         Cmd::Watch { sounds } => watch::watch(sounds),
         Cmd::Shell => shell::shell(),
         Cmd::Emptied { workspace } => commands::emptied(&workspace),
+        Cmd::Renumber => commands::renumber(),
         Cmd::Tab(command) => run_tab(command),
         Cmd::Window(WindowCmd::Send { space, silent }) => commands::send_window(space, silent),
         Cmd::Window(WindowCmd::Tab { n, silent }) => commands::window_to_tab(n, silent),

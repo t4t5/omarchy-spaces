@@ -777,6 +777,7 @@ fn tab_go_in_home_without_omarchy_is_the_plain_workspace() {
 #[test]
 fn tab_go_stays_inside_the_space() {
     let env = Env::new();
+    env.add_window("s1:1");
     env.set_active("s1:1");
     env.ok(&["tab", "go", "2"]);
     assert_eq!(
@@ -784,11 +785,49 @@ fn tab_go_stays_inside_the_space() {
         [r#"hl.dsp.focus({ workspace = "name:s1:2" })"#]
     );
     assert_eq!(env.active(), "s1:2");
+    // Past the last tab, a new one after it: tabs have no gaps.
     env.ok(&["tab", "go", "10"]);
-    assert_eq!(env.active(), "s1:10");
+    assert_eq!(env.active(), "s1:3");
 
     let last = fs::read_to_string(env.state().join("last")).unwrap();
-    assert!(last.starts_with("s1\t10\t"), "{last}");
+    assert!(last.starts_with("s1\t3\t"), "{last}");
+}
+
+#[test]
+fn renumber_closes_the_gaps_a_tab_leaves() {
+    let env = Env::new();
+    env.add_terminal("s1:1", &env.dir("ren"));
+    env.add_window("s1:3");
+    env.add_window("s1:4");
+    env.add_window("s2:2");
+    env.add_window("2");
+    env.add_window("5");
+    env.set_active("s1:4");
+    env.ok(&["tab", "rename", "s1:4", "server"]);
+    env.ok(&["go", "s2"]);
+
+    env.ok(&["renumber"]);
+    assert_eq!(
+        env.windows(),
+        ["s1:1", "s1:2", "s1:3", "s2:1", "2", "5"],
+        "home's keep theirs"
+    );
+    assert_eq!(env.tab_names(1), json!({ "s1:3": "server" }));
+    // Going back lands on the tab you left, as it's numbered now.
+    env.ok(&["go", "s1"]);
+    assert_eq!(env.active(), "s1:3");
+
+    // Nothing to close.
+    let renames = |env: &Env| {
+        let hypr = env.hypr.lock().unwrap();
+        hypr.evaluated
+            .iter()
+            .filter(|script| script.contains("workspace.rename"))
+            .count()
+    };
+    let before = renames(&env);
+    env.ok(&["renumber"]);
+    assert_eq!(renames(&env), before);
 }
 
 #[test]

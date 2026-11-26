@@ -43,7 +43,7 @@ Bind these actions rather than `space` commands: they stay the same if the comma
 |---|---|
 | `spaces.new_tab()` | New tab, with a terminal in the space's folder |
 | `spaces.bind_tab_keys()` | Binds Omarchy's workspace keys to tabs, by itself: `super+1`–`0` to go to one, with `shift` to move the window there, with `shift+alt` to move it and stay where you are, and `super+tab` and `super+shift+tab` for the next and previous tab. For other keys, bind the actions below |
-| `spaces.go_to_tab(n)` | Go to tab N |
+| `spaces.go_to_tab(n)` | Go to tab N, or past the last tab, to a new one after it |
 | `spaces.next_tab()` / `spaces.prev_tab()` | Next / previous tab |
 | `spaces.rename_tab()` | Name the tab you are on: type over its name on the bar, Enter to keep it, Escape to stop. An empty name has it called after its window again |
 | `spaces.send_tab()` | Move the tab you are on to another space, and go with it: type to filter the spaces, Enter to pick, Escape to stop. It starts on the space you left last |
@@ -54,7 +54,7 @@ Bind these actions rather than `space` commands: they stay the same if the comma
 | Action | Does |
 |---|---|
 | `spaces.terminal()` | Terminal in the folder you are in; on an empty tab, the space's folder. If that fails, Omarchy's own |
-| `spaces.move_window_to_tab(n)` | Move the window to tab N; with `false` after it, staying where you are |
+| `spaces.move_window_to_tab(n)` | Move the window to tab N, or past the last tab, to a new one after it; with `false` after it, staying where you are |
 | `spaces.send_window("next")` / `spaces.send_window("prev")` | Send the window to the next / previous space, or to one by name, and go with it; with `false` after it, staying where you are |
 
 In `home`, `go_to_tab` and `move_window_to_tab` behave exactly as Omarchy's workspace keys, so a new tab there opens empty.

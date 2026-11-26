@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, headerOnBar, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, headerOnBar, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -385,6 +385,40 @@ test("drags tabs, which aren't equally wide", () => {
   assert.equal(tabDragOffset(widths, 1, -500, 4), -44, "no further than the first")
   assert.equal(tabDragOffset(widths, 1, 500, 4), 64, "nor than the last")
   assert.equal(tabDragOffset(widths, 1, 12, 4), 12)
+})
+
+test("shows the empty numbers among home's tabs, faded", () => {
+  const tab = (slot) => ({ id: "s1:" + slot, slot })
+  const shown = (tabs, withGaps = true) => tabCells(tabs, withGaps).map((cell) => cell.tab ? cell.tab.slot + "@" + cell.index : "(" + cell.gap + (cell.run ? "…" : "") + ")@" + cell.before)
+  assert.deepEqual(shown([tab(1), tab(3), tab(4)]), ["1@0", "(2)@1", "3@1", "4@2"])
+  assert.deepEqual(shown([tab(3), tab(5)]), ["(1…)@0", "3@0", "(4)@1", "5@1"], "from 1, two or more as one")
+  assert.deepEqual(shown([tab(1), tab(2), tab(6)]), ["1@0", "2@1", "(3…)@2", "6@2"])
+  assert.deepEqual(shown([tab(1), tab(2)]), ["1@0", "2@1"], "none after the last")
+  assert.deepEqual(shown([tab(2), tab(0)]), ["(1)@0", "2@0", "0@1"], "none for a tab without a number")
+  assert.deepEqual(shown([]), [])
+  assert.deepEqual(shown([tab(1), tab(3)], false), ["1@0", "3@1"], "a space's, numbered again in a moment")
+})
+
+test("drags tabs past the empty numbers, which stay in their places", () => {
+  // 1 (2) 3 4: tabs 40, 100 and 60 wide, the 2 20 wide.
+  const cells = tabCells([1, 3, 4].map((slot) => ({ id: "s1:" + slot, slot })), true)
+  const gaps = tabGaps(cells, [40, 20, 100, 60], 4)
+  assert.deepEqual(gaps, [0, 24, 0])
+  assert.equal(tabDropIndex([40, 100, 60], 0, 78, 4, gaps), 0, "up to the next one's middle, past the 2")
+  assert.equal(tabDropIndex([40, 100, 60], 0, 79, 4, gaps), 1)
+  assert.equal(tabDropIndex([40, 100, 60], 2, -153, 4, gaps), 0)
+  assert.equal(tabDragOffset([40, 100, 60], 2, -500, 4, gaps), -172, "no further than the first")
+  assert.equal(tabDragOffset([40, 100, 60], 0, 500, 4, gaps), 192, "nor than the last")
+  // The last to the front, 60 wide: 1 0 → 64 and the 2 after it, 44 → 64;
+  // the first tab moves past the 2 to the second place, 0 → 88.
+  const front = tabShifts([40, 100, 60], 2, 0, 4, gaps)
+  assert.deepEqual(front, { tabs: [88, 64, 0], gaps: [0, 20, 0] })
+  // The first past the 3: the 3 takes the first place, 68 → 0, before the 2,
+  // which moves along by how much wider the 3 is.
+  const past = tabShifts([40, 100, 60], 0, 1, 4, gaps)
+  assert.deepEqual(past, { tabs: [0, -68, 0], gaps: [0, 60, 0] })
+  assert.deepEqual(tabShifts([40, 100, 60], -1, -1, 4, gaps), { tabs: [0, 0, 0], gaps: [0, 0, 0] }, "no drag")
+  assert.deepEqual(tabShifts([40, 100, 60], 0, 2, 4), { tabs: [0, -44, -44], gaps: [0, 0, 0] }, "as dragShift with no gaps")
 })
 
 test("a moved tab takes its place's number", () => {

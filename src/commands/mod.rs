@@ -9,7 +9,8 @@ pub mod window;
 pub use crate::restore::restore;
 pub use space::{close, go, icon, ls, new, rename, reorder, step};
 pub use tab::{
-    Target, close_tab, emptied, go_to_named_tab, go_to_tab, rename_tab, reorder_tab, send_tab,
+    Target, close_tab, emptied, go_to_named_tab, go_to_tab, rename_tab, renumber, reorder_tab,
+    send_tab,
 };
 pub use window::{send_window, window_to_tab};
 
@@ -150,6 +151,14 @@ pub(crate) fn wait_for_window(
 /// at once would both go from the same place, and one be lost.
 pub(super) fn take_turn() -> Result<std::fs::File> {
     state::lock(&paths::state_dir(), ".step.lock")
+}
+
+/// Held by the commands that can end a tab while they run, until it's
+/// dropped. `space renumber`, which Hyprland runs as a tab ends, waits for
+/// it, so whatever they note about the tabs, by their numbers, is renumbered
+/// along with them rather than after.
+pub(super) fn hold_tabs() -> Result<std::fs::File> {
+    state::lock(&paths::state_dir(), ".tabs.lock")
 }
 
 /// `order` with `item` taken out and put back at `index`, or last.

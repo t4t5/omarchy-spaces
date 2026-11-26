@@ -82,6 +82,8 @@ pub fn slots(keys: impl IntoIterator<Item = u8>, block: u8) -> BTreeMap<u8, u8> 
 pub struct Strip {
     block: u8,
     slots: BTreeMap<u8, u8>,
+    /// Whether it's `home`'s, whose tabs keep their numbers.
+    home: bool,
 }
 
 impl Strip {
@@ -104,7 +106,11 @@ impl Strip {
         } else {
             slots(keys, block)
         };
-        Self { block, slots }
+        Self {
+            block,
+            slots,
+            home: space == HOME,
+        }
     }
 
     /// The tabs, by key, in the order they show.
@@ -117,6 +123,18 @@ impl Strip {
     /// The slot a tab shows as.
     pub fn slot(&self, key: u8) -> Option<u8> {
         self.slots.get(&key).copied()
+    }
+
+    /// The tab to go to for a slot, as `super+N` does: the one that shows as
+    /// it, or past the last a new one after it, as a space's tabs have no
+    /// gaps (`space renumber`). `home`'s are Omarchy's workspaces, any of
+    /// them.
+    pub fn reach(&self, slot: u8) -> u8 {
+        if self.home {
+            return self.at(slot);
+        }
+        let after_last = u8::try_from(self.slots.len() + 1).unwrap_or(u8::MAX);
+        self.at(slot.min(after_last))
     }
 
     /// The tab that shows as a slot, or would.
@@ -158,6 +176,7 @@ mod tests {
         Strip {
             block,
             slots: slots(keys.iter().copied(), block),
+            home: false,
         }
     }
 
@@ -196,6 +215,19 @@ mod tests {
         assert_eq!((strip.at(2), strip.at(3), strip.at(4)), (2, 11, 4));
         assert_eq!((strip.slot(11), strip.slot(4)), (Some(3), None));
         assert_eq!(strip.keys(), [1, 2, 11]);
+    }
+
+    #[test]
+    fn goes_no_further_than_a_new_tab_after_the_last() {
+        let two = strip(&[1, 2], 0);
+        assert_eq!((two.reach(2), two.reach(3), two.reach(6)), (2, 3, 3));
+        assert_eq!(strip(&[11], 1).reach(5), 12);
+        assert_eq!(strip(&[], 0).reach(4), 1);
+        let home = Strip {
+            home: true,
+            ..strip(&[1, 2], 0)
+        };
+        assert_eq!(home.reach(6), 6, "home's keep their numbers");
     }
 
     #[test]
