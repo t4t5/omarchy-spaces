@@ -14,3 +14,12 @@ A space's tabs are always numbered 1, 2, 3, … on each monitor: Hyprland runs `
 
 - A command that can end a tab (closing windows, moving them away, sending the tab elsewhere) holds `hold_tabs()` while it runs, so `renumber` waits for it rather than renumbering the tabs under it. The lock can't be taken twice in one process: a command that already holds it calls the `_held` version of another, as `send_window` calls `emptied_held`.
 - A command that renames a tab out of a space calls `renumber_tabs` before it finishes, as `send_tab` does. A rename isn't a workspace going, so Hyprland doesn't run `renumber` for it.
+
+## Working in a fork
+
+Spaces is young and changes quickly, so forks should grow with it rather than drift away:
+
+1. Merge `upstream/main` into your fork often, before starting new work, not only when something conflicts.
+2. Send anything generally useful upstream as a small, focused PR, branched from `upstream/main`. Keep a change only in your fork while its PR is open, or when it only fits your own setup.
+3. Keep fork-only changes in their own files and commits, so merging upstream stays easy. Don't put them in AGENTS.md or CLAUDE.md.
+4. Check the open issues and PRs here before building something, so work isn't duplicated.
