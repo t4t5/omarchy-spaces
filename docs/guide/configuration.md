@@ -5,7 +5,7 @@ Spaces works without a config. To change something, make `~/.config/omarchy-spac
 ```toml
 [restore]
 auto = true       # open your spaces again after you log out or restart; `space restore` always does
-agents = true     # with the Claude Code conversations that were in their terminals
+agents = true     # with the agents' conversations that were in their terminals
 browsers = true   # with your browser's windows; false also stops saving the pages you have open
 
 [sounds]

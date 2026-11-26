@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 const ADAPTERS: &[Adapter] = &[claude::ADAPTER, agy::ADAPTER];
 
-pub(super) fn is_uuid(id: &str) -> bool {
+fn is_uuid(id: &str) -> bool {
     id.len() == 36
         && id.bytes().enumerate().all(|(i, b)| match i {
             8 | 13 | 18 | 23 => b == b'-',
@@ -36,7 +36,7 @@ struct Adapter {
 /// checked, so a saved session can't hold a command of its own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Conversation {
-    /// Which agent: `claude`, `agy`.
+    /// Which agent: its adapter's name, as `claude`.
     pub agent: String,
     pub id: String,
     /// The folder it was started in, where it has to be picked up.
