@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::{Adapter, Conversation, Noted, Process};
+use super::{Adapter, Conversation, Noted, Process, is_uuid};
 use crate::paths;
 
 pub const ADAPTER: Adapter = Adapter {
@@ -24,14 +24,6 @@ pub const ADAPTER: Adapter = Adapter {
     // fails, and a new one takes its place. Leaving one isn't a failure.
     resume: |id| is_uuid(id).then(|| format!("claude --resume {id} || claude")),
 };
-
-fn is_uuid(id: &str) -> bool {
-    id.len() == 36
-        && id.bytes().enumerate().all(|(i, b)| match i {
-            8 | 13 | 18 | 23 => b == b'-',
-            _ => b.is_ascii_hexdigit(),
-        })
-}
 
 /// What it notes about one of its processes.
 #[derive(Deserialize)]

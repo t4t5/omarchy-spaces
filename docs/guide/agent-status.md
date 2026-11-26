@@ -12,7 +12,10 @@ A space shows whichever of its agents most needs you.
 
 ## Which agents show
 
-Claude Code works out of the box. Spaces reads what it notes about itself in `~/.claude/sessions/`, or that of the account it runs as, so there's nothing to set up.
+These work out of the box, with nothing to set up:
+
+- **Claude Code**
+- **Antigravity CLI**
 
 Other agents show as any program does, by name, without a status.
 
