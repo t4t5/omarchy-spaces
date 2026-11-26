@@ -138,7 +138,13 @@ pub fn shell(place: Place, before: Option<u32>) -> Option<Shell> {
     let stat = Stat::read(shell)?;
     let known = std::fs::read_to_string("/etc/shells").unwrap_or_default();
     let cwd = std::fs::canonicalize(format!("/proc/{shell}/cwd")).ok()?;
-    let program = foreground(&stat, &known);
+    let program = if is_shell_binary(shell, &known) {
+        foreground(&stat, &known)
+    } else {
+        // Direct-exec agent terminal (`omarchy agent`, `foot -e claude`, etc.):
+        // the session leader itself is the running agent.
+        Some(shell)
+    };
     let noted = program.and_then(agent::noted);
     Some(Shell {
         pid: shell,
@@ -161,11 +167,12 @@ fn fakes() -> Option<std::path::PathBuf> {
     std::env::var_os("SPACES_FAKE_CWDS").map(Into::into)
 }
 
-/// The shells the terminal app `pid` runs, oldest first. As
-/// `omarchy-cmd-terminal-cwd` decides: a terminal's shell is a child that
-/// leads its own session on a tty and is a login shell (listed in
-/// `/etc/shells`). Other apps' children, such as kitty's `kitten` helpers or a
-/// browser's, don't qualify.
+/// The shells (or directly launched agents) the terminal app `pid` runs, oldest
+/// first. As `omarchy-cmd-terminal-cwd` decides: a terminal's shell is a child
+/// that leads its own session on a tty and is a login shell (listed in
+/// `/etc/shells`). Terminals launched directly into a known agent (such as
+/// `omarchy agent` running `foot -e claude`) also qualify via `agent::noted`.
+/// Other apps' children, such as kitty's `kitten` helpers or a browser's, don't.
 fn shells(pid: u32) -> Vec<u32> {
     if let Some(fake) = fakes() {
         let shells = std::fs::read_to_string(fake.join(format!("{pid}.shells")));
@@ -235,7 +242,9 @@ impl Stat {
 }
 
 fn is_shell(pid: u32, stat: &Stat, shells: &str) -> bool {
-    stat.session == i64::from(pid) && stat.tty != 0 && is_shell_binary(pid, shells)
+    stat.session == i64::from(pid)
+        && stat.tty != 0
+        && (is_shell_binary(pid, shells) || agent::noted(pid).is_some())
 }
 
 /// Whether `pid` runs one of the shells `/etc/shells` lists.

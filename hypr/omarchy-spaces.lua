@@ -199,6 +199,22 @@ local function reclaim(shown)
   end
 end
 
+-- A space's tabs are numbered 1, 2, 3, ... on each monitor, as a browser's
+-- are: one that ends, however it does, takes its number with it, and `space
+-- renumber` moves the ones after it up. It runs as any workspace but one of
+-- `home`'s comes or goes, so a gap closes whatever left it. `home`'s tabs are
+-- Omarchy's workspaces and keep their numbers. A workspace that's gone may
+-- not say what it was.
+local function renumber(workspace)
+  local ok, space = pcall(locate, workspace)
+  if ok and space == "home" then
+    return
+  end
+  hl.dispatch(hl.dsp.exec_cmd("space renumber"))
+end
+
+hl.on("workspace.removed", renumber)
+
 -- A tab opens on the monitor you are on as its first window shows up, which
 -- needn't be the one you opened it on by then.
 hl.on("workspace.created", function(workspace)
@@ -207,6 +223,7 @@ hl.on("workspace.created", function(workspace)
     hl.timer(function()
       quietly(reclaim, false)
     end, { timeout = 1, type = "oneshot" })
+    renumber(workspace)
   end
 end)
 
@@ -255,6 +272,7 @@ end
 -- The tab that shows as a slot on the focused monitor: one of its own, or a
 -- guest, another monitor's left here as it was unplugged. Guests take the
 -- lowest slots free, in order, as `space` numbers them (src/monitors.rs).
+-- Past the last tab, it's a new one after it, as tabs have no gaps.
 local function tab_here(space, slot)
   local monitor = hl.get_active_monitor()
   local block = monitor and block_of(monitor) or 0
@@ -269,6 +287,11 @@ local function tab_here(space, slot)
       end
     end
   end
+  local count = #guests
+  for _ in pairs(own) do
+    count = count + 1
+  end
+  slot = math.min(slot, count + 1)
   if not own[slot] then
     table.sort(guests)
     local free = 0

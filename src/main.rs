@@ -47,9 +47,9 @@ enum Cmd {
         #[arg(value_name = "NAME")]
         second: Option<String>,
     },
-    /// Give a space, the active one unless you say which, a glyph or an emoji
-    /// for its badge, in place of its letters. An empty icon brings the
-    /// letters back.
+    /// Give a space, the active one unless you say which, a glyph, an emoji, or
+    /// an image file for its badge, in place of its letters. An empty icon
+    /// brings the letters back.
     #[command(override_usage = "space icon [SPACE] <ICON>")]
     Icon {
         #[arg(value_name = "SPACE")]
@@ -94,6 +94,10 @@ enum Cmd {
     /// on: go to another tab, or end the space.
     #[command(hide = true)]
     Emptied { workspace: String },
+    /// Run by Hyprland as a workspace comes or goes: number each space's tabs
+    /// 1, 2, 3, ... again, closing the gap one that ended left.
+    #[command(hide = true)]
+    Renumber,
     /// Open, go to, name, arrange, close and move tabs. A tab is given by its
     /// id, as `space ls --json` shows it.
     #[command(subcommand)]
@@ -214,9 +218,13 @@ fn main() -> ExitCode {
     // Run from a keybind or the sidebar, nobody sees stderr, so say it in a
     // notification.
     // `watch` ends whenever Hyprland restarts, and the plugin restarts it: not
-    // worth a notification.
-    let unseen = !matches!(cli.command, Cmd::Ls { .. } | Cmd::Watch { .. } | Cmd::Shell)
-        && !std::io::stderr().is_terminal();
+    // worth a notification. Nor is `renumber`, which Hyprland runs as every
+    // tab comes and goes: one that fails would fail again each time, and the
+    // tabs' numbers show it.
+    let unseen = !matches!(
+        cli.command,
+        Cmd::Ls { .. } | Cmd::Watch { .. } | Cmd::Shell | Cmd::Renumber
+    ) && !std::io::stderr().is_terminal();
 
     let result = match cli.command {
         Cmd::New { dir } => commands::new(dir),
@@ -239,6 +247,7 @@ fn main() -> ExitCode {
         Cmd::Watch { sounds } => watch::watch(sounds),
         Cmd::Shell => shell::shell(),
         Cmd::Emptied { workspace } => commands::emptied(&workspace),
+        Cmd::Renumber => commands::renumber(),
         Cmd::Tab(command) => run_tab(command),
         Cmd::Window(WindowCmd::Send { space, silent }) => commands::send_window(space, silent),
         Cmd::Window(WindowCmd::Tab { n, silent }) => commands::window_to_tab(n, silent),

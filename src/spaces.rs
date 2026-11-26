@@ -33,8 +33,8 @@ pub struct Entry {
     /// The name you gave it. Without one, it is called after its folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// The icon you picked for its badge, a glyph or an emoji, in place of
-    /// the letters of its name.
+    /// The icon you picked for its badge: a glyph, an emoji, or an image file
+    /// path, in place of the letters of its name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     /// The folder of the terminal it follows, last time it was seen; where
@@ -198,17 +198,102 @@ pub fn clean_name(raw: &str) -> Result<Option<String>> {
     Ok((!name.is_empty()).then(|| name.to_string()))
 }
 
-/// An icon you give a space: a Nerd Font glyph or an emoji, which can take
-/// several characters (`👩‍💻` is three), trimmed. Empty clears it.
+const IMAGE_EXTENSIONS: &[&str] = &["png", "svg", "jpg", "jpeg", "webp", "ico"];
+
+fn is_image_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            IMAGE_EXTENSIONS
+                .iter()
+                .any(|known| ext.eq_ignore_ascii_case(known))
+        })
+}
+
+fn looks_like_path(raw: &str) -> bool {
+    raw.starts_with(['/', '~'])
+        || raw.starts_with("./")
+        || raw.starts_with("../")
+        || raw.starts_with("file://")
+        || is_image_extension(Path::new(raw))
+}
+
+fn percent_decode(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex_value(bytes[i + 1]), hex_value(bytes[i + 2]))
+        {
+            out.push((hi << 4) | lo);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_value(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn clean_image_icon(raw: &str) -> Result<String> {
+    let stripped = raw
+        .strip_prefix("file://localhost")
+        .or_else(|| raw.strip_prefix("file://"))
+        .map(percent_decode);
+    let expanded = crate::paths::expand(stripped.as_deref().unwrap_or(raw));
+    let path = if expanded.is_absolute() {
+        expanded
+    } else {
+        std::env::current_dir()
+            .context("can't read the current folder")?
+            .join(expanded)
+    };
+    let canonical = std::fs::canonicalize(&path)
+        .with_context(|| format!("no image file {}", crate::paths::tilde(&path)))?;
+    if !canonical.is_file() {
+        bail!("{} is not a file", crate::paths::tilde(&canonical));
+    }
+    if !is_image_extension(&canonical) {
+        bail!("an image icon must be a png, svg, jpg, jpeg, webp, or ico file");
+    }
+    canonical
+        .to_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("image path is not valid UTF-8"))
+}
+
+/// An icon you give a space: a Nerd Font glyph, an emoji (which can take
+/// several characters, as `👩‍💻` is three), or a path to an image file
+/// (`png`, `svg`, `jpg`, `jpeg`, `webp`, `ico`). Empty clears it.
 pub fn clean_icon(raw: &str) -> Result<Option<String>> {
     let icon = raw.trim();
-    if icon.chars().any(|c| c.is_control() || c.is_whitespace()) {
-        bail!("an icon is one glyph or emoji, without spaces");
+    if icon.is_empty() {
+        return Ok(None);
+    }
+    if icon.chars().any(char::is_control) {
+        bail!("an icon has to fit on one line");
+    }
+    if looks_like_path(icon) {
+        return clean_image_icon(icon).map(Some);
+    }
+    if icon.chars().any(char::is_whitespace) {
+        bail!("an icon is one glyph or emoji (without spaces), or an image file");
     }
     if icon.chars().count() > 16 {
-        bail!("'{icon}' is too long for an icon: use one glyph or emoji");
+        bail!("'{icon}' is too long for an icon: use one glyph, emoji, or image file");
     }
-    Ok((!icon.is_empty()).then(|| icon.to_string()))
+    Ok(Some(icon.to_string()))
 }
 
 #[cfg(test)]
@@ -324,5 +409,25 @@ mod tests {
         assert!(clean_icon("a b").is_err());
         assert!(clean_icon("a\nb").is_err());
         assert!(clean_icon(&"x".repeat(17)).is_err());
+
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("my logo.PNG");
+        std::fs::write(&png, b"\x89PNG").unwrap();
+        let canonical = std::fs::canonicalize(&png).unwrap();
+        let expected = canonical.to_string_lossy().into_owned();
+        assert_eq!(
+            clean_icon(&png.to_string_lossy()).unwrap(),
+            Some(expected.clone())
+        );
+        let uri = format!("file://{}", png.to_string_lossy().replace(' ', "%20"));
+        assert_eq!(clean_icon(&uri).unwrap(), Some(expected));
+
+        let txt = dir.path().join("notes.txt");
+        std::fs::write(&txt, "hi").unwrap();
+        assert!(clean_icon(&txt.to_string_lossy()).is_err());
+        assert!(clean_icon(&dir.path().join("missing.png").to_string_lossy()).is_err());
+        let folder = dir.path().join("dir.png");
+        std::fs::create_dir(&folder).unwrap();
+        assert!(clean_icon(&folder.to_string_lossy()).is_err());
     }
 }

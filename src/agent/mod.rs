@@ -3,6 +3,7 @@
 //! file here, named in `ADAPTERS`. An agent without one is a program like any
 //! other.
 
+mod agy;
 mod claude;
 
 use std::ffi::OsStr;
@@ -11,7 +12,15 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-const ADAPTERS: &[Adapter] = &[claude::ADAPTER];
+const ADAPTERS: &[Adapter] = &[claude::ADAPTER, agy::ADAPTER];
+
+fn is_uuid(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => b == b'-',
+            _ => b.is_ascii_hexdigit(),
+        })
+}
 
 struct Adapter {
     /// What conversations are saved under.
@@ -27,7 +36,7 @@ struct Adapter {
 /// checked, so a saved session can't hold a command of its own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Conversation {
-    /// Which agent: `claude`.
+    /// Which agent: its adapter's name, as `claude`.
     pub agent: String,
     pub id: String,
     /// The folder it was started in, where it has to be picked up.
@@ -113,7 +122,12 @@ mod tests {
             parse_resume(&format!("claude {id}")),
             Some(format!("claude --resume {id} || claude"))
         );
+        assert_eq!(
+            parse_resume(&format!("agy {id}")),
+            Some(format!("agy -r {id} || agy"))
+        );
         assert_eq!(parse_resume("claude x; rm -rf ~"), None);
+        assert_eq!(parse_resume("agy x; rm -rf ~"), None);
         assert_eq!(parse_resume(&format!("sh {id}")), None);
         assert_eq!(parse_resume(id), None);
     }

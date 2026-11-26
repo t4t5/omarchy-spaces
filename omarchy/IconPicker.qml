@@ -65,7 +65,7 @@ PanelWindow {
     root.wanted = true
     root.query = ""
     var icon = root.row ? root.row.icon : ""
-    root.tab = icon && !Spaces.isGlyph(icon) ? "emojis" : "glyphs"
+    root.tab = icon && !Spaces.isGlyph(icon) && !Spaces.isImageIcon(icon) ? "emojis" : "glyphs"
     root.current = Math.max(0, root.shown.findIndex(function(entry) { return entry.icon === icon }))
     Qt.callLater(function() {
       keys.forceActiveFocus()
@@ -152,6 +152,8 @@ PanelWindow {
         root.current = Spaces.gridMove(root.current, root.shown.length, root.columns, 0, event.key === Qt.Key_PageUp ? -rows : rows)
       } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
         root.pick(root.current)
+      } else if (ctrl && event.key === Qt.Key_O) {
+        root.controller.pickIconFromFile()
       } else if (Util.editsFilter(event, root.query)) {
         root.setQuery(Util.editedFilter(event, root.query))
       } else if (printable) {
@@ -312,7 +314,7 @@ PanelWindow {
 
       Item {
         width: parent.width
-        height: parent.height - (root.fieldHeight + parent.spacing) * (tabs.visible ? 2 : 1)
+        height: parent.height - (root.fieldHeight + parent.spacing) * (tabs.visible ? 3 : 2)
 
         GridView {
           id: grid
@@ -374,6 +376,49 @@ PanelWindow {
           opacity: 0.7
           font.family: Style.font.family
           font.pixelSize: Style.font.body
+        }
+      }
+
+      // Pick a custom PNG/SVG logo from the native Files dialog.
+      Rectangle {
+        width: parent.width
+        height: root.fieldHeight
+        radius: Style.cornerRadius
+        color: fileMouse.containsMouse ? root.selectedBackground
+          : Qt.rgba(root.selectedBackground.r, root.selectedBackground.g, root.selectedBackground.b, root.selectedBackground.a * 0.45)
+
+        Row {
+          anchors.centerIn: parent
+          spacing: Style.spacing.controlGap
+
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            // An image outline (nf-md-image_outline).
+            text: "\u{f0976}"
+            color: fileMouse.containsMouse ? root.accent : root.foreground
+            opacity: fileMouse.containsMouse ? 1 : 0.75
+            font.family: Style.font.family
+            font.pixelSize: Style.font.icon
+          }
+
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            text: "Choose image from Files…"
+            color: fileMouse.containsMouse ? root.accent : root.foreground
+            opacity: fileMouse.containsMouse ? 1 : 0.85
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+          }
+        }
+
+        MouseArea {
+          id: fileMouse
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.controller.pickIconFromFile()
         }
       }
     }

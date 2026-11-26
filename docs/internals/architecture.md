@@ -6,8 +6,8 @@ Spaces has three parts: a command in Rust, an Omarchy shell plugin in QML, and a
 
 It keeps no state about windows: it asks Hyprland over its socket, then dispatches.
 
-- **Terminals**: their folders and foreground programs come from their shells in `/proc`, as Omarchy's `omarchy-cmd-terminal-cwd` does. A terminal's program is the leader of the foreground process group on its shell's tty.
-- **Agents**: what an agent is doing, and the conversation it's in, come from its adapter in `src/agent/`. Claude Code's reads what it notes about each of its processes in `~/.claude/sessions/`, or in the `CLAUDE_CONFIG_DIR` that process has, as Omarchy's other accounts do.
+- **Terminals**: their folders and foreground programs come from their shells in `/proc`, as Omarchy's `omarchy-cmd-terminal-cwd` does, plus directly launched agent sessions (like `omarchy agent`). A shell terminal's program is the leader of the foreground process group on its shell's tty.
+- **Agents**: what an agent is doing, and the conversation it's in, come from its adapter in `src/agent/`, which reads what the agent itself keeps on disk, so none needs hooks.
 - **Browsers**: what browser windows hold comes from an adapter in `src/browser/`. Chromium's reads the session files that it and those made from it keep open in their profile, matching them to Hyprland's windows by title, or the order they were opened in.
 
 Nothing else knows of any one agent or browser, so another is a new file there.
@@ -36,6 +36,7 @@ It holds:
 - the keybind helpers (tab actions and plugin calls),
 - the hook that takes the other monitors along when you go to another space,
 - the hook that moves on from a tab emptied by closing its last window (`space emptied`),
+- the hook that numbers each space's tabs 1, 2, 3, … again as a workspace comes or goes (`space renumber`); the commands that can end a tab hold `.tabs.lock` while they run, so it waits for them,
 - the blur behind a glassy sidebar and bar.
 
 ## State

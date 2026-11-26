@@ -12,7 +12,7 @@ Click the logo above the rail, or press a key bound to `spaces.toggle_sidebar()`
 
 ## Icons
 
-Right-click a space to give its badge an icon in place of its letters: a Nerd Font glyph or an emoji. Tab switches between the two, or type to search both at once. The badge shows the icon under the cursor until you pick one.
+Right-click a space to give its badge an icon in place of its letters: a Nerd Font glyph, an emoji, or a custom image file (`png`, `svg`, `jpg`, `webp`, `ico`). Tab switches between glyphs and emoji, type to search both at once, or click **Choose image from Files…** (or press `Ctrl+O`) to pick a logo from Files. The badge shows the icon under the cursor until you pick one.
 
 ## The logo
 

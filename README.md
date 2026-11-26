@@ -1,16 +1,19 @@
 # Omarchy Spaces
 
-A plugin that organizes [Omarchy](https://omarchy.org) by project.
+A plugin that organizes Omarchy by project.
 
 <p align="center">
   <img src="assets/screenshot.png" width="627" alt="A sidebar listing your spaces, beside the tabs of the open one">
 </p>
 
-- Every project gets its own **space**.
-- Every space has its own **tabs**.
-- Every tab is a regular workspace.
-- Agent status in the sidebar, like [Herdr](https://herdr.dev).
-- Spaces are restored after a restart.
+## Concept
+
+Inspired by multiplexer apps like [Herdr](https://herdr.dev) and [Rex](https://superlogical.com), but using Hyprland to integrate into the OS itself:
+
+- Every project gets its own **space**
+- Every space has its own **tabs** (workspaces)
+- Keep track of agent status across projects
+- Spaces are restored after a restart
 
 ## Install
 
@@ -52,7 +55,3 @@ omarchy plugin remove com.t4t5.spaces
 ```
 
 Your windows, bar and keys go back to how they were.
-
-## Credits
-
-Inspired by [Herdr](https://herdr.dev) and [Rex](https://superlogical.com). The [sounds](assets/sounds) are Herdr's.

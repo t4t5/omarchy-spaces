@@ -24,6 +24,8 @@ A **space** holds one piece of work. Each space has its own **tabs**, and each t
 
 **Closing.** Right-click a tab to close it. If it has windows it asks first, as they close with it. Closing the last window on a tab takes you to the next tab on that monitor, or the one before. With none there, the tab stays, empty, as long as the space has windows on another monitor.
 
+**Numbers.** A space's tabs are always numbered 1, 2, 3, … on each monitor, as a browser's are. When a tab ends, however it goes (closed, its last window closing or moving away, sent to another space), the tabs after it move up a number, with the names you gave them, and `super+1`–`0` follow. Going to a number past the last tab goes to a new, empty tab after it. `home` is different: its tabs are Omarchy's workspaces, which keep their numbers, so a closed tab with tabs after it leaves its number on the bar, faded, as Omarchy shows its empty workspaces. Click it to go there. Two or more empty numbers in a row show as one `…`, which goes to the first.
+
 All of these have [keys](keys.md) you can bind, [commands](cli.md), or both.
 
 ## Multiple monitors

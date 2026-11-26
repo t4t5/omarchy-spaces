@@ -47,13 +47,19 @@ BarWidget {
   readonly property var model: root.heldTabs || root.live
   readonly property var live: Spaces.monitorNamed(root.service && root.service.watch ? root.service.watch.now : Spaces.EMPTY, root.screenName)
   property var heldTabs: null
+  // The tabs and, faded among `home`'s, the numbers no tab has
+  // (Spaces.tabCells).
+  readonly property var cells: Spaces.tabCells(root.model.tabs, root.model.space === "home")
   // The tab being dragged, where it would drop, and how far it has moved.
   property int dragFrom: -1
   property int dragTo: -1
   property real dragDx: 0
-  // Each tab's width when the drag began.
+  // Each tab's width when the drag began, and the room the empty numbers
+  // before each took.
   property var dragWidths: []
-  readonly property real dragPitch: root.dragFrom < 0 ? 0 : root.dragWidths[root.dragFrom] + row.spacing
+  property var dragGaps: []
+  // How far the other tabs, and the empty numbers, move aside meanwhile.
+  readonly property var dragShifts: Spaces.tabShifts(root.dragWidths, root.dragFrom, root.dragTo, row.spacing, root.dragGaps)
   // How far a press has to move along the bar to become a drag.
   readonly property real dragThreshold: Math.round(root.barSize * 0.4)
   readonly property color foreground: root.bar ? root.bar.barForeground : Commons.Color.bar.text
@@ -180,10 +186,13 @@ BarWidget {
     if (count === 0 || root.centerStart === Infinity) return Infinity
     var room = root.centerStart - root.beforeCenter - root.origin.x - root.tabsX
       - newTab.width - row.spacing * count
+    // The empty numbers aren't cut short: what they take is the tabs' less.
     var widths = []
     for (var i = 0; i < tabRepeater.count; i++) {
-      var tab = tabRepeater.itemAt(i)
-      if (tab) widths.push(tab.natural)
+      var cell = tabRepeater.itemAt(i)
+      if (!cell) continue
+      if (cell.gap) room -= cell.width + row.spacing
+      else widths.push(cell.natural)
     }
     return Math.max(root.tabPadding * 2 + root.fontSize * 2, Spaces.fairCap(widths, room))
   }
@@ -194,17 +203,23 @@ BarWidget {
       root.controller.endNaming(false)
     }
     settling.stop()
+    var all = []
     var widths = []
-    for (var i = 0; i < tabRepeater.count; i++) widths.push(tabRepeater.itemAt(i).width)
+    for (var i = 0; i < tabRepeater.count; i++) {
+      var cell = tabRepeater.itemAt(i)
+      all.push(cell.width)
+      if (!cell.gap) widths.push(cell.width)
+    }
     root.dragWidths = widths
+    root.dragGaps = Spaces.tabGaps(root.cells, all, row.spacing)
     root.heldTabs = root.model
     root.dragTo = index
     root.dragFrom = index
   }
 
   function drag(dx) {
-    root.dragDx = Spaces.tabDragOffset(root.dragWidths, root.dragFrom, dx, row.spacing)
-    root.dragTo = Spaces.tabDropIndex(root.dragWidths, root.dragFrom, root.dragDx, row.spacing)
+    root.dragDx = Spaces.tabDragOffset(root.dragWidths, root.dragFrom, dx, row.spacing, root.dragGaps)
+    root.dragTo = Spaces.tabDropIndex(root.dragWidths, root.dragFrom, root.dragDx, row.spacing, root.dragGaps)
   }
 
   function endDrag() {
@@ -492,37 +507,43 @@ BarWidget {
 
     Repeater {
       id: tabRepeater
-      model: root.vertical ? [] : root.model.tabs
+      model: root.vertical ? [] : root.cells
 
+      // A tab, or a number no tab has, which goes to it when clicked.
       TabButton {
         id: tabButton
         required property var modelData
-        required property int index
-        text: root.tabLabel(modelData)
-        number: modelData.slot > 0 ? String(modelData.slot) : ""
+        readonly property var tab: modelData.tab || null
+        // Where the tab is among the tabs, -1 for an empty number.
+        readonly property int tabIndex: tabButton.tab ? modelData.index : -1
+        gap: !tabButton.tab
+        text: tabButton.tab ? root.tabLabel(tabButton.tab) : modelData.run ? "…" : String(modelData.gap)
+        number: tabButton.tab && tabButton.tab.slot > 0 ? String(tabButton.tab.slot) : ""
         mouseLayer: tabMouse
-        dragged: root.dragFrom === index
-        shift: Spaces.dragShift(index, root.dragFrom, root.dragTo, root.dragPitch)
+        dragged: tabButton.tab !== null && root.dragFrom === tabButton.tabIndex
+        shift: tabButton.tab ? root.dragShifts.tabs[tabButton.tabIndex] || 0
+          : root.dragShifts.gaps[modelData.before] || 0
         onDragMoved: function(dx) {
+          if (!tabButton.tab) return
           if (root.dragFrom < 0) {
             if (root.model.tabs.length < 2 || Math.abs(dx) < root.dragThreshold) return
-            root.startDrag(tabButton.index)
+            root.startDrag(tabButton.tabIndex)
           }
           if (tabButton.dragged) root.drag(dx)
         }
         // Later: the new order makes new tabs, this one among them.
         onDropped: Qt.callLater(root.drop)
         onDragCanceled: root.endDrag()
-        editing: !!root.controller && root.controller.renaming === modelData.id
-        status: modelData.status
-        current: modelData.active
-        cap: root.tabCap
-        onClicked: root.run(["space", "tab", "go", modelData.id])
-        hasMenu: true
-        menuOpen: !!root.controller && root.controller.menuTabFor === modelData.id
+        editing: !!tabButton.tab && !!root.controller && root.controller.renaming === tabButton.tab.id
+        status: tabButton.tab ? tabButton.tab.status : ""
+        current: !!tabButton.tab && tabButton.tab.active
+        cap: tabButton.tab ? root.tabCap : Infinity
+        onClicked: root.run(["space", "tab", "go", tabButton.tab ? tabButton.tab.id : String(modelData.gap)])
+        hasMenu: !!tabButton.tab
+        menuOpen: !!tabButton.tab && !!root.controller && root.controller.menuTabFor === tabButton.tab.id
           && !!root.controller.menuScreen && root.controller.menuScreen.name === root.screenName
-        onDoubleClicked: if (root.controller) root.controller.renameTab(modelData.id)
-        onMenuRequested: function(x, y) { root.openTabMenu(modelData.id, x, y) }
+        onDoubleClicked: if (tabButton.tab && root.controller) root.controller.renameTab(tabButton.tab.id)
+        onMenuRequested: function(x, y) { if (tabButton.tab) root.openTabMenu(tabButton.tab.id, x, y) }
       }
     }
 
@@ -539,14 +560,15 @@ BarWidget {
     visible: root.vertical
 
     Repeater {
-      model: root.vertical ? root.model.tabs : []
+      model: root.vertical ? root.cells : []
 
       TabButton {
         required property var modelData
-        text: root.tabLabel(modelData)
-        status: modelData.status
-        current: modelData.active
-        onClicked: root.run(["space", "tab", "go", modelData.id])
+        gap: !modelData.tab
+        text: modelData.tab ? root.tabLabel(modelData.tab) : modelData.run ? "…" : String(modelData.gap)
+        status: modelData.tab ? modelData.tab.status : ""
+        current: !!modelData.tab && modelData.tab.active
+        onClicked: root.run(["space", "tab", "go", modelData.tab ? modelData.tab.id : String(modelData.gap)])
       }
     }
   }
@@ -560,6 +582,8 @@ BarWidget {
     // Its number, and whether you are typing a name for it.
     property string number: ""
     property bool editing: false
+    // A number no tab has: fainter than a tab you aren't on.
+    property bool gap: false
     signal clicked()
     signal doubleClicked()
     // Whether a right-click opens its menu: not the `+`'s, nor on a vertical
@@ -614,7 +638,7 @@ BarWidget {
       text: button.text
       elide: Text.ElideRight
       color: button.current ? root.accent : root.foreground
-      opacity: button.current ? 1 : 0.6
+      opacity: button.current ? 1 : button.gap ? 0.3 : 0.6
       font.family: root.fontFamily
       font.pixelSize: root.fontSize
       font.bold: button.current

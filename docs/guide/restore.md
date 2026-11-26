@@ -6,7 +6,7 @@ After you log out or restart, your spaces open again by themselves, `home` inclu
 
 - **Spaces and tabs**: their ids, names, icons and tab names.
 - **Terminals**: each in its folder and arranged as it was (splits and their sizes, groups, floating and fullscreen windows, monitors).
-- **Claude Code**: a terminal that was running it picks its conversation up again (`claude --resume`), or starts a new one if there was nothing in it yet.
+- **Agents**: a terminal that was running [one Spaces knows](agent-status.md#which-agents-show) picks its conversation up again, or starts a new one if there was nothing in it yet.
 - **Browser windows and web apps** of Chromium, Chrome, Brave and Edge, with their tabs, each in the browser it was in. The tab you were on comes first, and the tabs load anew, without their history, groups or pins.
 
 ## What doesn't

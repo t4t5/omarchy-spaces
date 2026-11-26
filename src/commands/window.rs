@@ -3,8 +3,8 @@
 use anyhow::Result;
 
 use super::space::{landing_tab, neighbour};
-use super::tab::emptied;
-use super::{SpaceTarget, forget, remember, selector, take_turn};
+use super::tab::emptied_held;
+use super::{SpaceTarget, forget, hold_tabs, remember, selector, take_turn};
 use crate::hypr::{self, Hypr};
 use crate::live;
 use crate::monitors::{Blocks, Strip};
@@ -16,10 +16,11 @@ use crate::state::Last;
 /// following it unless `silent`.
 pub fn window_to_tab(slot: u8, silent: bool) -> Result<()> {
     let hypr = Hypr::from_env()?;
+    let _tabs = hold_tabs()?;
     let active = hypr.active_workspace()?;
     let here = name::locate(active.id, &active.name);
     let workspaces = hypr.workspaces()?;
-    let key = Strip::new(&workspaces, here.space(), &active, &Blocks::load()).at(slot);
+    let key = Strip::new(&workspaces, here.space(), &active, &Blocks::load()).reach(slot);
     if here.key() == Some(key) || !hypr.has_active_window()? {
         return Ok(());
     }
@@ -52,6 +53,7 @@ pub fn send_window(target: SpaceTarget, silent: bool) -> Result<()> {
     let _turn = matches!(target, SpaceTarget::Next | SpaceTarget::Prev)
         .then(take_turn)
         .transpose()?;
+    let _tabs = hold_tabs()?;
     if !hypr.has_active_window()? {
         return Ok(());
     }
@@ -87,7 +89,7 @@ pub fn send_window(target: SpaceTarget, silent: bool) -> Result<()> {
     }
 
     if silent {
-        return emptied(&active.name);
+        return emptied_held(&active.name);
     }
     // Where you left the space, unless that was its last window and it's
     // gone.
