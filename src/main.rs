@@ -218,9 +218,13 @@ fn main() -> ExitCode {
     // Run from a keybind or the sidebar, nobody sees stderr, so say it in a
     // notification.
     // `watch` ends whenever Hyprland restarts, and the plugin restarts it: not
-    // worth a notification.
-    let unseen = !matches!(cli.command, Cmd::Ls { .. } | Cmd::Watch { .. } | Cmd::Shell)
-        && !std::io::stderr().is_terminal();
+    // worth a notification. Nor is `renumber`, which Hyprland runs as every
+    // tab comes and goes: one that fails would fail again each time, and the
+    // tabs' numbers show it.
+    let unseen = !matches!(
+        cli.command,
+        Cmd::Ls { .. } | Cmd::Watch { .. } | Cmd::Shell | Cmd::Renumber
+    ) && !std::io::stderr().is_terminal();
 
     let result = match cli.command {
         Cmd::New { dir } => commands::new(dir),
