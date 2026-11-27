@@ -40,7 +40,7 @@ Spaces' own tabs take settings from an object without an `id`:
 
 To replace a slot, give it a widget entry:
 - A registered bar widget by id: `"tabs": "io.github.someone.kanji-tabs"`. Also add `{ "id": "io.github.someone.kanji-tabs" }` to the top-level `plugins` list, or the shell won't load it.
-- A custom QML widget: `"tabs": { "id": "my-tabs", "type": "qml" }` (loads `~/.config/omarchy/bar/modules/my-tabs.qml`) or `{ "id": "my-tabs", "source": "~/path/MyTabs.qml" }`. Other keys become its `settings`.
+- A custom QML widget: `"tabs": { "id": "my-tabs", "type": "qml" }` (loads `~/.config/omarchy/bar/modules/my-tabs.qml`) or `{ "source": "~/path/MyTabs.qml" }`. Other keys become its `settings`.
 - `"header": false` gives the corner back to the sidebar, which draws its own header. A widget in `header` replaces that header, so it should call `spaces.toggleSidebar()`.
 - Until a widget loads, the slot shows Spaces' own.
 

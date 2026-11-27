@@ -57,7 +57,7 @@ Leave `tabs` out and you get Spaces' own tabs. An object without an `id` changes
 
 ### Another widget in a slot
 
-Put any bar widget in a slot by its id, or one of your own as a custom QML module, as the bar takes them: `{ "id": "my-tabs", "type": "qml" }` loads `~/.config/omarchy/bar/modules/my-tabs.qml`, and `{ "id": "my-tabs", "source": "~/path/to/MyTabs.qml" }` loads that file. The rest of the entry is the widget's settings.
+Put any bar widget in a slot by its id, or one of your own as a custom QML module, as the bar takes them: `{ "id": "my-tabs", "type": "qml" }` loads `~/.config/omarchy/bar/modules/my-tabs.qml`, and `{ "source": "~/path/to/MyTabs.qml" }` loads that file. The rest of the entry is the widget's settings.
 
 ```json
 {

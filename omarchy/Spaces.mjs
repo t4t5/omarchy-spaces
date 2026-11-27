@@ -548,7 +548,7 @@ export function recessAlpha(r, g, b) {
 // over the sidebar) and `tabs` (past the sidebar's edge). Each holds a bar
 // widget entry, as the bar's own layout does: Spaces' own (`spaces.header`,
 // `spaces.tabs`) by default, any registered bar widget by its id, or a custom
-// QML module (`{ id, type: "qml" }` or `{ id, source }`), with the rest of the
+// QML module (`{ id, type: "qml" }` or `{ source }`), with the rest of the
 // entry as its settings. `false` leaves the slot empty.
 
 // Whether the widget `id` sits first in the bar's left section, on a bar along
@@ -568,7 +568,8 @@ export function parseBarEntry(entry) {
   }
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null
   const id = typeof entry.id === "string" ? entry.id.trim() : ""
-  if (!id) return null
+  const source = typeof entry.source === "string" ? entry.source.trim() : ""
+  if (!id && !source) return null
   const settings = {}
   for (const key of Object.keys(entry)) if (key !== "id") settings[key] = entry[key]
   return { id, settings }

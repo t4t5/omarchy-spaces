@@ -320,7 +320,7 @@ BarWidget {
     readonly property string customUrl: Spaces.customModuleUrl(host.entry, root.home)
     readonly property var registered: {
       var registry = root.service ? root.service.barWidgetRegistry : null
-      if (!host.entry || host.customUrl || !registry) return null
+      if (!host.entry || !host.entry.id || host.customUrl || !registry) return null
       var revision = registry.revision
       var widgets = registry.widgets
       return widgets && widgets[host.entry.id] ? widgets[host.entry.id].component : null
@@ -328,8 +328,9 @@ BarWidget {
     readonly property var item: registryLoader.item || moduleLoader.item
     readonly property bool found: !!host.item
 
-    // Not bound to the item's `visible`, which is false while any parent is
-    // hidden, so a hidden slot would never show it again.
+    // Collapse the size rather than binding `host.visible` to `item.visible`:
+    // `item.visible` goes false while any ancestor is hidden, so binding
+    // `host.visible` to it would deadlock when the slot shows again.
     implicitWidth: host.item && host.item.visible ? (root.vertical ? root.barSize : host.item.implicitWidth) : 0
     implicitHeight: host.item && host.item.visible ? (root.vertical ? host.item.implicitHeight : root.barSize) : 0
     width: implicitWidth
@@ -368,7 +369,7 @@ BarWidget {
       if (!target || !host.entry) return
       if ("fixedEdge" in target) target.fixedEdge = root.fixedEdge
       if ("bar" in target) target.bar = root.bar
-      if ("moduleName" in target) target.moduleName = host.entry.id
+      if ("moduleName" in target && host.entry.id) target.moduleName = host.entry.id
       if ("settings" in target) target.settings = host.entry.settings
       if ("spaces" in target) target.spaces = spacesApi
       if ("maxWidth" in target) target.maxWidth = host.maxWidth
@@ -379,7 +380,11 @@ BarWidget {
     Timer {
       running: !!host.entry && !host.customUrl && !host.found
       interval: 5000
-      onTriggered: console.warn("omarchy-spaces: no bar widget \"" + host.entry.id + "\" for the slot; is it in shell.json's plugins?")
+      onTriggered: {
+        var source = host.entry.settings && host.entry.settings.source
+        if (source) console.warn("omarchy-spaces: invalid source \"" + source + "\" for the slot; use an absolute or ~/ path")
+        else console.warn("omarchy-spaces: no bar widget \"" + host.entry.id + "\" for the slot; is it in shell.json's plugins?")
+      }
     }
   }
 }
