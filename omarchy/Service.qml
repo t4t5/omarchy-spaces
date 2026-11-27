@@ -12,9 +12,6 @@ Item {
   property string omarchyPath: ""
   property var shell: null
   property var manifest: null
-  // Injected by omarchy-shell: live snapshot of enabled bar widgets so the bar
-  // frame can host Omarchy widgets alongside Spaces' own.
-  property var barWidgetRegistry: null
 
   // Only the first time: the shell hands a kept service the new manifest after
   // an update, while this is still the old one's QML.
@@ -28,6 +25,28 @@ Item {
   readonly property var sidebar: sidebarItem
   // Shared interaction and theme state for the bar, sidebar, and popups.
   readonly property var controller: controllerItem
+
+  // Deduplicated view load/API error notifications: key -> last message sent,
+  // so one broken tab view doesn't fire a notification per tab per monitor.
+  property var reportedViewErrors: ({})
+  function reportViewError(key, message) {
+    var k = String(key || "")
+    var msg = String(message || "")
+    if (!k || !msg) return
+    if (root.reportedViewErrors[k] === msg) return
+    var next = Object.assign({}, root.reportedViewErrors)
+    next[k] = msg
+    root.reportedViewErrors = next
+    console.warn("omarchy-spaces view error:", msg)
+    Quickshell.execDetached(["omarchy-notification-send", "--app-name", "Spaces", "-u", "normal", "Custom view failed to load", msg])
+  }
+  function clearViewError(key) {
+    var k = String(key || "")
+    if (!k || !(k in root.reportedViewErrors)) return
+    var next = Object.assign({}, root.reportedViewErrors)
+    delete next[k]
+    root.reportedViewErrors = next
+  }
 
   // The tabs' widgets with the sidebar's header on their bar, or null until
   // one has said whether it has.

@@ -32,26 +32,83 @@ Put it before the tabs, and the sidebar draws its own header:
 omarchy plugin enable omarchy.menu --section left --index 0
 ```
 
-## Customizing the bar widget
+## Customizing views
 
-The `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` accepts `header` (in the recess over the rail) and `widgets` (sliding past the sidebar's edge). Without them, it defaults to `spaces.header` and `["spaces.tabs", "spaces.new-tab"]`.
+Spaces keeps the behaviour (clicks, drag-to-reorder, inline renaming, menus, width cap, sliding with the sidebar) and lets you swap how its parts draw by pointing at your own QML files in `~/.config/omarchy/shell.json`.
+
+Every node follows one rule: a file path replaces that node with your view, an object keeps the built-in and overrides its children, `false` hides optional nodes (`newTab`, `header`), and leaving it out keeps the default.
 
 ```json
 {
   "id": "com.t4t5.spaces",
-  "header": { "id": "spaces.header", "title": "Spaces" },
-  "widgets": [
-    {
-      "id": "spaces.tabs",
-      "slotLabels": ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"],
-      "showLabels": false
-    },
-    "spaces.new-tab"
-  ]
+  "tabs": {
+    "tab": "~/.config/omarchy/spaces/KanjiTab.qml",
+    "newTab": false
+  }
 }
 ```
 
-- **`header`**: `"spaces.header"` (accepts optional `icon`, `iconFont`, `title`), `false` to keep the header inside the sidebar, a registered Omarchy bar widget like `"omarchy.menu"`, or a custom QML file (`{ "id": "my-header", "type": "qml" }` or `{ "source": "~/.config/..." }`).
-- **`widgets`**: any mix of `"spaces.tabs"` (accepts `slotLabels`, `showLabels`, `showGaps`), `"spaces.new-tab"` (accepts `text`), simple registered Omarchy widgets like `"omarchy.spacer"`, or custom QML widgets (`type: "qml"` loads `~/.config/omarchy/bar/modules/<id>.qml`, or pass `source`).
+You can also set `"tabs": "~/.config/omarchy/spaces/MyTabs.qml"` to replace the whole tab strip while keeping the recess, sliding edge, and room before the clock.
 
-Custom QML widgets that declare `property var spaces` receive the live Spaces context (`model`, `space`, `tabs`, `cells`, `spaces`, `sidebar`, `controller`, `foreground`, `accent`, `hover`, `fontFamily`, `fontSize`, `toggleSidebar()`, `goToTab(idOrSlot)`, `newTab()`, `run(args)`).
+Each view declares `readonly property int api: 1`, reports its `implicitWidth` and `implicitHeight`, and fills the width Spaces gives it (e.g. when the tab cap narrows tabs before the clock). If a view fails to load or declares a different `api`, Spaces falls back to the built-in view and shows a notification. Saving a custom view file reloads it live.
+
+### Example: Japanese tabs (`KanjiTab.qml`)
+
+```qml
+import QtQuick
+
+Item {
+  readonly property int api: 1
+  property var tab          // null on an empty gap number in home
+  property int slot
+  property bool gap
+  property bool gapRun
+  property bool current
+  property bool hovered
+  property bool dragged
+  property bool menuOpen
+  property bool editing
+  property bool vertical
+  property var theme
+  property var parts
+
+  readonly property var kanji: ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+  readonly property string mark: gapRun ? "…" : (kanji[slot - 1] || (slot > 0 ? String(slot) : "·"))
+
+  implicitWidth: vertical ? theme.barSize : row.implicitWidth + theme.padding * 2
+  implicitHeight: vertical ? 26 : theme.barSize
+
+  Rectangle {
+    anchors.fill: parent
+    anchors.margins: 4
+    radius: theme.cornerRadius
+    color: menuOpen || dragged || (hovered && !current) ? theme.hover : "transparent"
+  }
+
+  Row {
+    id: row
+    anchors.centerIn: parent
+    spacing: 6
+
+    Text {
+      textFormat: Text.PlainText
+      text: mark
+      color: current ? theme.accent : theme.foreground
+      opacity: current ? 1 : gap ? 0.3 : 0.6
+      font.family: theme.fontFamily
+      font.pixelSize: theme.fontSize
+      font.bold: current
+    }
+
+    Loader { active: editing && !vertical; sourceComponent: parts ? parts.editor : null }
+    Loader { active: !!tab && tab.status !== ""; sourceComponent: parts ? parts.status : null }
+  }
+}
+```
+
+### View contract (`api: 1`)
+
+- **`tabs.tab`**: receives `tab` (`{ id, slot, label, named, status, windows, active }` or `null` on a gap), `slot`, `gap`, `gapRun`, `current`, `hovered`, `dragged`, `menuOpen`, `editing`, `vertical`, `theme`, and pre-bound `parts` (`parts.status`, `parts.editor`).
+- **`tabs.newTab`**: receives `hovered`, `vertical`, `count`, and `theme`.
+- **`tabs` (full strip)**: receives `space`, `tabs`, `cells`, `vertical`, `maxWidth`, `theme`, and `actions` (`goToTab(target)`, `newTab()`, `openTabMenu(id, x, y)`).
+- **`theme`**: `foreground`, `accent`, `hover`, `fontFamily`, `fontSize`, `barSize`, `padding`, `cornerRadius`, `statusColors`, `palette`.

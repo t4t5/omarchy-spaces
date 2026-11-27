@@ -5,49 +5,39 @@ import Quickshell
 import qs.Commons
 import "Spaces.mjs" as Spaces
 
-// The active space's tabs (`spaces.tabs`): clicks switch tabs, double-clicks
-// rename inline, right-clicks open the tab menu, and dragging reorders tabs
-// along a horizontal bar.
-//
-// Inline settings (all optional):
-//   slotLabels - array of custom labels for slots 1..10 (e.g. kanji numerals)
-//   showLabels - false to show only slot numbers/labels (default: true)
-//   showGaps   - "home" (default), true, or false for faded empty numbers
+// The built-in `tabs` strip: owns clicks, drag-to-reorder, double-click inline
+// rename, right-click tab menus, the `+` button, and fair width capping before
+// the clock. Drawing of each cell (`tab`) and the `+` (`newTab`) is delegated
+// through ViewLoader (`api: 1`), using DefaultTab.qml and DefaultNewTab.qml by
+// default.
 Item {
   id: root
 
-  property var bar: null
-  property var spaces: null
-  property var settings: ({})
-  property string moduleName: "spaces.tabs"
-  // Room left before the bar's centre, set by TabsWidget.qml.
+  property var live: Spaces.monitorNamed(Spaces.EMPTY, "")
+  property var service: null
+  property var controller: null
+  property string screenName: ""
+  property bool vertical: false
+  property int barSize: Style.bar.sizeHorizontal
+  property point origin: Qt.point(0, 0)
+  property real tabsX: 0
   property real maxWidth: Infinity
-  // Position within the bar frame's widget row, for the drag overlay.
-  property real xInRow: 0
+  property var theme: null
+  property var tabViewNode: ({ mode: "default", path: "", url: "", children: {}, error: "" })
+  property var newTabViewNode: ({ mode: "default", path: "", url: "", children: {}, error: "" })
 
-  readonly property bool vertical: root.bar ? root.bar.vertical : false
-  readonly property int barSize: root.bar ? root.bar.barSize : Style.bar.sizeHorizontal
-  readonly property var controller: root.spaces ? root.spaces.controller : null
-  readonly property string screenName: root.spaces ? root.spaces.screenName : ""
-  readonly property color foreground: root.spaces ? root.spaces.foreground : Color.bar.text
-  readonly property color accent: root.spaces ? root.spaces.accent : Color.accent
-  readonly property color hover: root.spaces ? root.spaces.hover : Color.menu.selectedBackground
-  readonly property string fontFamily: root.spaces ? root.spaces.fontFamily : Style.font.family
-  readonly property int fontSize: root.spaces ? root.spaces.fontSize : Style.font.body
+  signal goToTab(string target)
+  signal newTabRequested()
+  signal tabMenuRequested(string id, real x, real y)
+  signal reorderRequested(string id, int position)
 
   // The tabs shown: while one is dragged, as they were when it began, so the
   // drag isn't cut short when an agent's status changes; and once dropped, as
   // they will be, until `space watch` has them so.
-  readonly property var live: root.spaces ? root.spaces.model : Spaces.monitorNamed(Spaces.EMPTY, "")
   readonly property var model: root.heldTabs || root.live
   property var heldTabs: null
-  readonly property bool withGaps: {
-    var mode = root.settings ? root.settings.showGaps : undefined
-    if (mode === true) return true
-    if (mode === false) return false
-    return root.model.space === "home"
-  }
-  readonly property var cells: Spaces.tabCells(root.model.tabs, root.withGaps)
+  readonly property var cells: Spaces.tabCells(root.model.tabs, root.model.space === "home")
+  readonly property bool showNewTab: !root.vertical && root.newTabViewNode.mode !== "hidden" && root.model.tabs.length < 10
 
   // The tab being dragged, where it would drop, and how far it has moved.
   property int dragFrom: -1
@@ -57,9 +47,8 @@ Item {
   property var dragGaps: []
   readonly property var dragShifts: Spaces.tabShifts(root.dragWidths, root.dragFrom, root.dragTo, stripRow.spacing, root.dragGaps)
   readonly property real dragThreshold: Math.round(root.barSize * 0.4)
-  // Either side of a tab's label. Tighter than a row's, so the tabs stand
-  // about as close as Omarchy's workspaces do.
-  readonly property real tabPadding: Style.spacing.lg
+  readonly property real tabPadding: root.theme ? root.theme.padding : Style.spacing.lg
+  readonly property int fontSize: root.theme && root.theme.fontSize > 0 ? root.theme.fontSize : Style.font.body
 
   implicitWidth: root.vertical ? root.barSize : stripRow.implicitWidth
   implicitHeight: root.vertical ? stripColumn.implicitHeight : root.barSize
@@ -67,7 +56,8 @@ Item {
   readonly property real tabCap: {
     var count = root.model.tabs.length
     if (count === 0 || root.maxWidth === Infinity) return Infinity
-    var room = root.maxWidth - stripRow.spacing * Math.max(0, count - 1)
+    var plusRoom = root.showNewTab ? newTabHost.width + stripRow.spacing : 0
+    var room = root.maxWidth - plusRoom - stripRow.spacing * Math.max(0, count - 1)
     // The empty numbers aren't cut short: what they take is the tabs' less.
     var widths = []
     for (var i = 0; i < tabRepeater.count; i++) {
@@ -111,8 +101,6 @@ Item {
     root.heldTabs = null
   }
 
-  // Drops the dragged tab. The bar shows the new order at once rather than
-  // waiting for `space watch` to have it, so the tab doesn't jump back first.
   function drop() {
     var from = root.dragFrom
     var to = root.dragTo
@@ -127,7 +115,7 @@ Item {
     }
     root.heldTabs = Spaces.reorderTabs(held, from, to)
     settling.restart()
-    if (root.spaces) root.spaces.run(["space", "tab", "reorder", held.tabs[from].id, String(to + 1)])
+    root.reorderRequested(held.tabs[from].id, to + 1)
   }
 
   onLiveChanged: {
@@ -151,21 +139,20 @@ Item {
     onTriggered: root.settle()
   }
 
+  Component { id: defaultTabComponent; DefaultTab {} }
+  Component { id: defaultNewTabComponent; DefaultNewTab {} }
+
   // Where the tabs take the mouse. The bar lays an area of its own over each
   // widget, to drag it along the bar, which a press on a tab would go to
   // first; this lies over that one, in the bar's window, where the tabs are.
+  // The `+` stays under the bar's, to drag the widget by.
   Item {
     id: tabMouse
     parent: root.QsWindow.contentItem || root
     visible: root.visible && stripRow.visible
     z: 1
-    x: parent === root ? 0 : (root.spaces ? root.spaces.origin.x + root.spaces.tabsX : 0) + root.xInRow
-    y: parent === root ? 0 : (root.spaces ? root.spaces.origin.y : 0)
-  }
-
-  function gapText(cell) {
-    if (cell.run) return "…"
-    return Spaces.slotLabel(cell.gap, root.settings ? root.settings.slotLabels : null)
+    x: parent === root ? 0 : root.origin.x + root.tabsX
+    y: parent === root ? 0 : root.origin.y
   }
 
   Row {
@@ -178,39 +165,54 @@ Item {
       id: tabRepeater
       model: root.vertical ? [] : root.cells
 
-      TabButton {
-        id: tabButton
+      TabCell {
+        id: cellHost
         required property var modelData
-        readonly property var tab: modelData.tab || null
-        readonly property int tabIndex: tabButton.tab ? modelData.index : -1
-        gap: !tabButton.tab
-        text: tabButton.tab ? Spaces.tabLabel(tabButton.tab, false, root.settings) : root.gapText(modelData)
-        number: tabButton.tab ? Spaces.slotLabel(tabButton.tab.slot, root.settings ? root.settings.slotLabels : null) : ""
+        cell: modelData
         mouseLayer: tabMouse
-        dragged: tabButton.tab !== null && root.dragFrom === tabButton.tabIndex
-        shift: tabButton.tab ? root.dragShifts.tabs[tabButton.tabIndex] || 0
+        cap: cellHost.tab ? root.tabCap : Infinity
+        dragged: cellHost.tab !== null && root.dragFrom === cellHost.tabIndex
+        shift: cellHost.tab ? root.dragShifts.tabs[cellHost.tabIndex] || 0
           : root.dragShifts.gaps[modelData.before] || 0
         onDragMoved: function(dx) {
-          if (!tabButton.tab) return
+          if (!cellHost.tab) return
           if (root.dragFrom < 0) {
             if (root.model.tabs.length < 2 || Math.abs(dx) < root.dragThreshold) return
-            root.startDrag(tabButton.tabIndex)
+            root.startDrag(cellHost.tabIndex)
           }
-          if (tabButton.dragged) root.drag(dx)
+          if (cellHost.dragged) root.drag(dx)
         }
-        // Later: the new order makes new tabs, this one among them.
         onDropped: Qt.callLater(root.drop)
         onDragCanceled: root.endDrag()
-        editing: !!tabButton.tab && !!root.controller && root.controller.renaming === tabButton.tab.id
-        status: tabButton.tab ? tabButton.tab.status : ""
-        current: !!tabButton.tab && tabButton.tab.active
-        cap: tabButton.tab ? root.tabCap : Infinity
-        onClicked: if (root.spaces) root.spaces.goToTab(tabButton.tab ? tabButton.tab.id : String(modelData.gap))
-        hasMenu: !!tabButton.tab
-        menuOpen: !!tabButton.tab && !!root.controller && root.controller.menuTabFor === tabButton.tab.id
-          && !!root.controller.menuScreen && root.controller.menuScreen.name === root.screenName
-        onDoubleClicked: if (tabButton.tab && root.controller) root.controller.renameTab(tabButton.tab.id)
-        onMenuRequested: function(x, y) { if (tabButton.tab && root.spaces) root.spaces.openTabMenu(tabButton.tab.id, x, y) }
+      }
+    }
+
+    Item {
+      id: newTabHost
+      visible: root.showNewTab
+      width: newTabView.implicitWidth
+      height: root.barSize
+
+      ViewLoader {
+        id: newTabView
+        anchors.fill: parent
+        node: root.newTabViewNode
+        fallbackComponent: defaultNewTabComponent
+        service: root.service
+        props: ({
+          hovered: newTabMouse.containsMouse,
+          vertical: false,
+          count: root.model.tabs.length,
+          theme: root.theme,
+        })
+      }
+
+      MouseArea {
+        id: newTabMouse
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.newTabRequested()
       }
     }
   }
@@ -222,130 +224,118 @@ Item {
     Repeater {
       model: root.vertical ? root.cells : []
 
-      TabButton {
+      TabCell {
         required property var modelData
-        gap: !modelData.tab
-        text: modelData.tab ? Spaces.tabLabel(modelData.tab, true, root.settings) : root.gapText(modelData)
-        status: modelData.tab ? modelData.tab.status : ""
-        current: !!modelData.tab && modelData.tab.active
-        onClicked: if (root.spaces) root.spaces.goToTab(modelData.tab ? modelData.tab.id : String(modelData.gap))
+        cell: modelData
       }
     }
   }
 
-  component TabButton: Item {
+  // Host for one tab or gap cell: owns mouse/drag/menu/rename/width-cap and
+  // hands plain data, state, theme, and pre-bound `parts` to the tab view.
+  component TabCell: Item {
     id: button
-    property string text: ""
-    property bool current: false
-    property string status: ""
-    property string number: ""
-    property bool editing: false
-    property bool gap: false
-    signal clicked()
-    signal doubleClicked()
-    property bool hasMenu: false
-    signal menuRequested(real x, real y)
-    property bool menuOpen: false
+
+    property var cell: null
+    readonly property var tab: cell && cell.tab ? cell.tab : null
+    readonly property int tabIndex: button.tab ? cell.index : -1
+    readonly property bool gap: !button.tab
+    readonly property string status: button.tab ? button.tab.status : ""
+    readonly property bool editing: !!button.tab && !!root.controller && root.controller.renaming === button.tab.id
+    readonly property bool menuOpen: !!button.tab && !!root.controller && root.controller.menuTabFor === button.tab.id
+      && !!root.controller.menuScreen && root.controller.menuScreen.name === root.screenName
+
     property Item mouseLayer: null
     property bool dragged: false
     signal dragMoved(real dx)
     signal dropped()
     signal dragCanceled()
+
     property real shift: 0
     Behavior on shift { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
     z: button.dragged ? 1 : 0
     transform: Translate { x: button.dragged ? root.dragDx : button.shift }
 
-    readonly property real dotRoom: button.status !== "" && !root.vertical ? dot.width + Style.spacing.sm : 0
     property real cap: Infinity
-    readonly property real natural: Math.min((button.editing ? editor.implicitWidth : label.implicitWidth) + button.dotRoom + root.tabPadding * 2, Style.space(220))
+    readonly property real natural: Math.min(view.implicitWidth, Style.space(220))
     width: root.vertical ? root.barSize : (button.editing ? button.natural : Math.min(button.natural, button.cap))
-    height: root.vertical ? Style.space(26) : root.barSize
+    height: root.vertical ? (view.implicitHeight > 0 ? view.implicitHeight : Style.space(26)) : root.barSize
+    clip: true
 
-    Rectangle {
-      anchors.fill: parent
-      anchors.margins: Style.spacing.xs
-      radius: Style.cornerRadius
-      color: button.editing ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.08)
-        : button.menuOpen || button.dragged || (mouse.containsMouse && !button.current && root.dragFrom < 0) ? root.hover : "transparent"
-      border.width: button.editing ? Math.max(1, Style.space(1)) : 0
-      border.color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.6)
-    }
-
-    Text {
-      id: label
-      visible: !button.editing
-      anchors.fill: parent
-      anchors.leftMargin: root.vertical ? 0 : root.tabPadding
-      anchors.rightMargin: root.vertical ? 0 : root.tabPadding + button.dotRoom
-      verticalAlignment: Text.AlignVCenter
-      horizontalAlignment: Text.AlignHCenter
-      textFormat: Text.PlainText
-      text: button.text
-      elide: Text.ElideRight
-      color: button.current ? root.accent : root.foreground
-      opacity: button.current ? 1 : button.gap ? 0.3 : 0.6
-      font.family: root.fontFamily
-      font.pixelSize: root.fontSize
-      font.bold: button.current
-    }
-
-    Row {
-      id: editor
-      visible: button.editing && !root.vertical
-      x: root.tabPadding
-      anchors.verticalCenter: parent.verticalCenter
-
-      Text {
-        id: editNumber
-        textFormat: Text.PlainText
-        text: button.number + " "
-        color: label.color
-        font: label.font
+    // Pre-bound shared parts for this cell, so custom views drop them into a
+    // Loader without touching `controller` or wiring status/rename state.
+    Component {
+      id: statusPart
+      StatusDot {
+        status: button.status
+        colors: root.controller ? root.controller.statusColors : null
+        workingColor: root.theme ? root.theme.foreground : Color.bar.text
+        size: Math.max(5, Math.round(root.fontSize * 0.45))
       }
+    }
 
-      Text {
-        id: editName
-        readonly property real room: Style.space(220) - root.tabPadding * 2 - editNumber.implicitWidth - caret.width - 1
-        width: text === "" ? placeholder.x + placeholder.implicitWidth : Math.min(implicitWidth, room)
-        textFormat: Text.PlainText
-        text: button.editing && root.controller ? root.controller.nameText : ""
-        elide: Text.ElideLeft
-        color: label.color
-        font: label.font
-        readonly property bool selected: button.editing && !!root.controller && root.controller.nameSelected && text !== ""
+    Component {
+      id: editorPart
+      Item {
+        id: ed
+        readonly property color fg: root.theme ? root.theme.foreground : Color.bar.text
+        readonly property color acc: root.theme ? root.theme.accent : Color.accent
+        readonly property string fam: root.theme ? root.theme.fontFamily : Style.font.family
+        readonly property int fsize: root.fontSize
+        readonly property real maxNameWidth: Style.space(220) - root.tabPadding * 2 - Style.space(24)
+        readonly property string typed: button.editing && root.controller ? root.controller.nameText : ""
+        readonly property bool selected: button.editing && !!root.controller && root.controller.nameSelected && typed !== ""
+        readonly property real shownWidth: typed === ""
+          ? caret.width + 1 + placeholder.implicitWidth
+          : Math.min(editName.implicitWidth, Math.max(Style.space(40), maxNameWidth))
+
+        implicitWidth: shownWidth + caret.width + 1
+        implicitHeight: Math.max(editName.implicitHeight, fsize + Style.spacing.xxs)
+
+        Text {
+          id: editName
+          width: ed.shownWidth
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: ed.typed
+          elide: Text.ElideLeft
+          color: button.tab && button.tab.active ? ed.acc : ed.fg
+          font.family: ed.fam
+          font.pixelSize: ed.fsize
+          font.bold: !!button.tab && button.tab.active
+        }
 
         Text {
           id: placeholder
-          visible: editName.text === ""
-          x: caret.x + caret.width
+          visible: ed.typed === ""
+          x: caret.width + 2
           anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
           text: "name"
-          color: root.foreground
+          color: ed.fg
           opacity: 0.35
-          font.family: root.fontFamily
-          font.pixelSize: root.fontSize
+          font.family: ed.fam
+          font.pixelSize: ed.fsize
         }
 
         Rectangle {
-          visible: editName.selected
+          visible: ed.selected
           z: -1
           width: editName.contentWidth
-          height: root.fontSize + Style.spacing.xxs
+          height: ed.fsize + Style.spacing.xxs
           anchors.verticalCenter: parent.verticalCenter
           radius: Math.max(1, Style.space(2))
-          color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.3)
+          color: Qt.rgba(ed.acc.r, ed.acc.g, ed.acc.b, 0.3)
         }
 
         Rectangle {
           id: caret
-          visible: button.editing && !editName.selected
-          x: editName.contentWidth + 1
+          visible: button.editing && !ed.selected
+          x: ed.typed === "" ? 1 : Math.min(editName.contentWidth, ed.shownWidth) + 1
           width: Math.max(1, Style.space(2))
-          height: root.fontSize + Style.spacing.xxs
+          height: ed.fsize + Style.spacing.xxs
           anchors.verticalCenter: parent.verticalCenter
-          color: root.accent
+          color: ed.acc
 
           SequentialAnimation on opacity {
             running: button.editing
@@ -360,16 +350,21 @@ Item {
       }
     }
 
-    StatusDot {
-      id: dot
-      status: button.status
-      colors: root.controller ? root.controller.statusColors : null
-      workingColor: root.foreground
-      size: Math.max(5, Math.round(root.fontSize * 0.45))
-      x: root.vertical ? parent.width * 0.7
-        : button.editing ? editor.x + editor.implicitWidth + Style.spacing.sm
-        : label.x + Math.min(label.contentWidth, label.width) + Style.spacing.sm
-      y: root.vertical ? Style.spacing.xs : (parent.height - height) / 2
+    readonly property var cellParts: ({ status: statusPart, editor: editorPart })
+
+    ViewLoader {
+      id: view
+      anchors.fill: parent
+      node: root.tabViewNode
+      fallbackComponent: defaultTabComponent
+      service: root.service
+      props: Spaces.tabCellProps(button.cell, {
+        hovered: mouse.containsMouse && root.dragFrom < 0,
+        dragged: button.dragged,
+        menuOpen: button.menuOpen,
+        editing: button.editing,
+        vertical: root.vertical,
+      }, root.theme, button.cellParts)
     }
 
     MouseArea {
@@ -383,7 +378,7 @@ Item {
       hoverEnabled: true
       preventStealing: true
       cursorShape: button.editing ? Qt.IBeamCursor : button.dragged ? Qt.ClosedHandCursor : Qt.PointingHandCursor
-      acceptedButtons: button.hasMenu ? Qt.LeftButton | Qt.RightButton : Qt.LeftButton
+      acceptedButtons: !root.vertical && !!button.tab ? Qt.LeftButton | Qt.RightButton : Qt.LeftButton
       onPressed: function(event) {
         mouse.wasDrag = false
         mouse.pressX = mouse.x + event.x
@@ -398,14 +393,16 @@ Item {
       onClicked: function(event) {
         if (button.editing || mouse.wasDrag) return
         if (event.button !== Qt.RightButton) {
-          button.clicked()
+          root.goToTab(button.tab ? button.tab.id : String(button.cell.gap))
           return
         }
         var at = mouse.mapToItem(null, event.x, event.y)
-        button.menuRequested(at.x, at.y)
+        root.tabMenuRequested(button.tab.id, at.x, at.y)
       }
       onDoubleClicked: function(event) {
-        if (!button.editing && event.button === Qt.LeftButton) button.doubleClicked()
+        if (!root.vertical && !button.editing && event.button === Qt.LeftButton && button.tab && root.controller) {
+          root.controller.renameTab(button.tab.id)
+        }
       }
     }
   }

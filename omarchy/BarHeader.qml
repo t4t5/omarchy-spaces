@@ -4,37 +4,20 @@ import QtQuick
 import qs.Commons
 
 // The sidebar's header on the bar, drawn inside the shaded recess over the
-// rail (`spaces.header`): Omarchy's logo in the rail's icon column, and once
-// the sidebar expands, its title in line with the spaces' names and a collapse
-// toggle riding the windows' edge. A right-click on the logo opens Omarchy's
-// menu.
-//
-// Inline settings (all optional):
-//   icon     - glyph or character over the rail (default: Omarchy logo)
-//   iconFont - font family for `icon` (default: "omarchy" for default icon,
-//              otherwise the theme font)
-//   title    - text shown beside the logo when expanded (default: "Spaces")
+// rail: Omarchy's logo in the rail's icon column, and once the sidebar expands,
+// its title in line with the spaces' names and a collapse toggle riding the
+// windows' edge. A right-click on the logo opens Omarchy's menu.
 Item {
   id: root
 
-  property var bar: null
-  property var spaces: null
-  property var settings: ({})
-  property string moduleName: "spaces.header"
-
-  readonly property var sidebar: root.spaces ? root.spaces.sidebar : null
-  readonly property int barSize: root.bar ? root.bar.barSize : Style.bar.sizeHorizontal
-  readonly property color foreground: root.spaces ? root.spaces.foreground : Color.bar.text
-  readonly property color accent: root.spaces ? root.spaces.accent : Color.accent
-  readonly property color hover: root.spaces ? root.spaces.hover : Color.menu.selectedBackground
-  readonly property string screenName: root.spaces ? root.spaces.screenName : ""
-
-  readonly property bool customIcon: !!root.settings && typeof root.settings.icon === "string" && root.settings.icon !== ""
-  readonly property string logoIcon: root.customIcon ? root.settings.icon : "\ue900"
-  readonly property string logoFont: root.settings && typeof root.settings.iconFont === "string" && root.settings.iconFont !== ""
-    ? root.settings.iconFont : (root.customIcon ? Style.font.family : "omarchy")
-  readonly property string titleText: root.settings && typeof root.settings.title === "string"
-    ? root.settings.title : "Spaces"
+  property var sidebar: null
+  property int barSize: Style.bar.sizeHorizontal
+  property color foreground: Color.bar.text
+  property color accent: Color.accent
+  property color hover: Color.menu.selectedBackground
+  property string screenName: ""
+  signal toggleRequested()
+  signal menuRequested()
 
   readonly property int inset: root.sidebar ? root.sidebar.inset : 0
   readonly property int cell: root.sidebar ? root.sidebar.cell : 0
@@ -56,22 +39,20 @@ Item {
   readonly property real afterLogo: root.inset + root.cell
   readonly property real titleX: root.afterLogo + (root.sidebar ? root.sidebar.textGap : 0)
 
-  implicitWidth: root.spaces ? root.spaces.edge : 0
-  implicitHeight: root.barSize
+  height: root.barSize
 
   // The logo, as the menu draws it, for the sidebar; a right-click opens the
   // menu.
   HeaderButton {
     x: root.inset
     width: root.cell
-    text: root.logoIcon
-    fontFamily: root.logoFont
+    text: "\ue900"
+    fontFamily: "omarchy"
     fontSize: Style.bar.iconFont
     restingOpacity: 1
     onClicked: function(button) {
-      if (!root.spaces) return
-      if (button === Qt.RightButton) root.spaces.run(["omarchy-shell", "shell", "toggle", "omarchy.menu", "{\"menu\":\"root\"}"])
-      else root.spaces.toggleSidebar()
+      if (button === Qt.RightButton) root.menuRequested()
+      else root.toggleRequested()
     }
   }
 
@@ -88,7 +69,7 @@ Item {
       height: parent.height
       verticalAlignment: Text.AlignVCenter
       textFormat: Text.PlainText
-      text: root.titleText
+      text: "Spaces"
       color: root.foreground
       opacity: 0.5 * root.textShown
       font.family: Style.font.family
@@ -111,7 +92,7 @@ Item {
       enabled: x >= 0
       // The sidebar, docked on the left (nf-cod-layout_sidebar_left).
       text: "\u{ebf3}"
-      onClicked: if (root.spaces) root.spaces.toggleSidebar()
+      onClicked: root.toggleRequested()
     }
   }
 

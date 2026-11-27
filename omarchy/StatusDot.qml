@@ -15,6 +15,8 @@ Rectangle {
   property real size: 6
 
   visible: root.status !== ""
+  implicitWidth: root.size
+  implicitHeight: root.size
   width: root.size
   height: root.size
   radius: root.size / 2
