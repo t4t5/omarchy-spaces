@@ -5,16 +5,15 @@ import Quickshell
 import qs.Commons
 import "Spaces.mjs" as Spaces
 
-// The built-in `tabs` strip: owns clicks, drag-to-reorder, double-click inline
-// rename, right-click tab menus, the `+` button, and fair width capping before
-// the clock. Drawing of each cell (`tab`) and the `+` (`newTab`) is delegated
-// through ViewLoader (`api: 1`), using DefaultTab.qml and DefaultNewTab.qml by
-// default.
+// The active space's tabs (`spaces.tabs`, the `tabs` slot's own): clicks
+// switch tabs, double-clicks rename them inline, right-clicks open the tab
+// menu, dragging reorders them along a horizontal bar, and the `+` opens a new
+// one. Tabs share the room left before the clock fairly. DefaultTab.qml draws
+// each tab and DefaultNewTab.qml the `+`.
 Item {
   id: root
 
   property var live: Spaces.monitorNamed(Spaces.EMPTY, "")
-  property var service: null
   property var controller: null
   property string screenName: ""
   property bool vertical: false
@@ -23,10 +22,10 @@ Item {
   property real tabsX: 0
   property real maxWidth: Infinity
   property var theme: null
-  property var tabViewNode: ({ mode: "default", path: "", url: "", children: {}, error: "" })
-  property var newTabViewNode: ({ mode: "default", path: "", url: "", children: {}, error: "" })
+  // From the `spaces.tabs` entry's settings.
   property var numerals: null
   property bool labels: true
+  property bool newTab: true
 
   signal goToTab(string target)
   signal newTabRequested()
@@ -39,7 +38,7 @@ Item {
   readonly property var model: root.heldTabs || root.live
   property var heldTabs: null
   readonly property var cells: Spaces.tabCells(root.model.tabs, root.model.space === "home")
-  readonly property bool showNewTab: !root.vertical && root.newTabViewNode.mode !== "hidden" && root.model.tabs.length < 10
+  readonly property bool showNewTab: !root.vertical && root.newTab && root.model.tabs.length < 10
 
   // The tab being dragged, where it would drop, and how far it has moved.
   property int dragFrom: -1
@@ -141,15 +140,6 @@ Item {
     onTriggered: root.settle()
   }
 
-  Component {
-    id: defaultTabComponent
-    DefaultTab {
-      numerals: root.numerals
-      labels: root.labels
-    }
-  }
-  Component { id: defaultNewTabComponent; DefaultNewTab {} }
-
   // Where the tabs take the mouse. The bar lays an area of its own over each
   // widget, to drag it along the bar, which a press on a tab would go to
   // first; this lies over that one, in the bar's window, where the tabs are.
@@ -201,18 +191,11 @@ Item {
       width: newTabView.implicitWidth
       height: root.barSize
 
-      ViewLoader {
+      DefaultNewTab {
         id: newTabView
         anchors.fill: parent
-        node: root.newTabViewNode
-        fallbackComponent: defaultNewTabComponent
-        service: root.service
-        props: ({
-          hovered: newTabMouse.containsMouse,
-          vertical: false,
-          count: root.model.tabs.length,
-          theme: root.theme,
-        })
+        hovered: newTabMouse.containsMouse
+        theme: root.theme
       }
 
       MouseArea {
@@ -239,8 +222,8 @@ Item {
     }
   }
 
-  // Host for one tab or gap cell: owns mouse/drag/menu/rename/width-cap and
-  // hands plain data, state, theme, and pre-bound `parts` to the tab view.
+  // One tab, or an empty number on `home`: takes the pointer, drags, and sets
+  // its width, and has DefaultTab.qml draw it.
   component TabCell: Item {
     id: button
 
@@ -270,8 +253,8 @@ Item {
     height: root.vertical ? (view.implicitHeight > 0 ? view.implicitHeight : Style.space(26)) : root.barSize
     clip: true
 
-    // Pre-bound shared parts for this cell, so custom views drop them into a
-    // Loader without touching `controller` or wiring status/rename state.
+    // The tab's status dot and its name as it's typed, for DefaultTab.qml to
+    // place.
     Component {
       id: statusPart
       StatusDot {
@@ -360,19 +343,23 @@ Item {
 
     readonly property var cellParts: ({ status: statusPart, editor: editorPart })
 
-    ViewLoader {
+    DefaultTab {
       id: view
       anchors.fill: parent
-      node: root.tabViewNode
-      fallbackComponent: defaultTabComponent
-      service: root.service
-      props: Spaces.tabCellProps(button.cell, {
-        hovered: mouse.containsMouse && root.dragFrom < 0,
-        dragged: button.dragged,
-        menuOpen: button.menuOpen,
-        editing: button.editing,
-        vertical: root.vertical,
-      }, root.theme, button.cellParts)
+      tab: button.tab
+      slot: button.tab ? button.tab.slot : (button.cell ? button.cell.gap : 0)
+      gap: button.gap
+      gapRun: button.gap && !!button.cell && !!button.cell.run
+      current: !!button.tab && button.tab.active
+      hovered: mouse.containsMouse && root.dragFrom < 0
+      dragged: button.dragged
+      menuOpen: button.menuOpen
+      editing: button.editing
+      vertical: root.vertical
+      theme: root.theme
+      parts: button.cellParts
+      numerals: root.numerals
+      labels: root.labels
     }
 
     MouseArea {

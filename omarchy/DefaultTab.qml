@@ -4,14 +4,13 @@ import QtQuick
 import qs.Commons
 import "Spaces.mjs" as Spaces
 
-// The built-in `tabs.tab` view, drawn through the same `api: 1` contract as a
-// user's custom tab view. Draws a tab (numeral + label + status dot), an empty
-// gap number on `home`, an inline rename state (`parts.editor`), and compact
-// vertical mode.
+// How the built-in tabs (TabsStrip.qml) draw one tab: its numeral, label and
+// status dot; an empty number on `home`; its name as it's typed
+// (`parts.editor`); or just its numeral on a vertical bar. TabsStrip.qml
+// handles the pointer and sets its width.
 Item {
   id: root
 
-  readonly property int api: 1
   property var tab: null
   property int slot: 0
   property bool gap: false
@@ -25,7 +24,7 @@ Item {
   property var theme: null
   property var parts: null
 
-  // Built-in options wired from `tabs` config.
+  // From the `spaces.tabs` entry's settings.
   property var numerals: null
   property bool labels: true
 

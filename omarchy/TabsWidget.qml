@@ -11,15 +11,14 @@ import "Spaces.mjs" as Spaces
 // The Spaces bar frame on Omarchy's bar, in place of its menu and workspaces.
 //
 // The bar parts where the windows begin, by the sidebar's rail or by the whole
-// sidebar. Before that line it draws the shaded recess and the sidebar's header
-// (when first in the left section and not disabled). Past it, from a rounded
-// corner, it draws the `tabs` strip sliding with the windows as the sidebar
-// opens.
+// sidebar. Before that line it draws the shaded recess and, when first in the
+// left section, its `header` slot. Past it, from a rounded corner, it draws its
+// `tabs` slot, sliding with the windows as the sidebar opens.
 //
-// Custom views are configured explicitly on the `com.t4t5.spaces` entry in
-// `~/.config/omarchy/shell.json`:
-//   tabs:   path to replace the whole strip, or `{ tab, newTab }` overrides
-//   sidebar: `{ header: false }` (more sidebar nodes follow in later steps)
+// Each slot holds a bar widget entry (Spaces.slotEntry): Spaces' own
+// (`spaces.header`, `spaces.tabs`) by default, or any other bar widget or
+// custom QML module, which gets the bar, its settings, and `spaces` (below),
+// as one on the bar does. `false` leaves the slot empty.
 BarWidget {
   id: root
   moduleName: "com.t4t5.spaces"
@@ -35,11 +34,13 @@ BarWidget {
   // The space's corner rounds as Hyprland rounds windows.
   readonly property real cornerRadius: Style.cornerRadius
 
-  readonly property var tabsCfg: Spaces.tabsConfig(root.settings, root.home)
-  readonly property var sidebarCfg: Spaces.sidebarConfig(root.settings, root.home)
+  readonly property var headerEntry: Spaces.slotEntry(root.settings, "header", "spaces.header")
+  readonly property var tabsEntry: Spaces.slotEntry(root.settings, "tabs", "spaces.tabs")
+  // The `spaces.tabs` entry's settings.
+  readonly property var tabsSettings: root.tabsEntry && root.tabsEntry.id === "spaces.tabs" ? root.tabsEntry.settings : ({})
 
-  // Stable `api: 1` theme object handed to swappable views.
-  readonly property var viewTheme: Spaces.themeViewModel({
+  // How Spaces' own tabs draw themselves.
+  readonly property var tabsTheme: ({
     foreground: root.foreground,
     accent: root.accent,
     hover: root.hover,
@@ -48,8 +49,6 @@ BarWidget {
     barSize: root.barSize,
     padding: Style.spacing.lg,
     cornerRadius: root.cornerRadius,
-    statusColors: root.controller ? root.controller.statusColors : null,
-    palette: root.controller ? root.controller.palette : Spaces.DEFAULT_PALETTE,
   })
 
   implicitWidth: root.vertical ? root.barSize : tabsHost.x + tabsHost.implicitWidth + root.padding
@@ -122,9 +121,8 @@ BarWidget {
   }
   onPartsChanged: root.placeLater()
 
-  // Whether the sidebar's header sits on this bar.
-  readonly property bool hasHeader: root.parts && !!root.bar
-    && root.sidebarCfg.header.mode !== "hidden"
+  // Whether the `header` slot sits on this bar, in place of the sidebar's own.
+  readonly property bool hasHeader: root.parts && !!root.bar && root.headerEntry !== null
     && Spaces.firstOnBar({ position: root.bar.position, layout: root.bar.layoutConfig }, root.moduleName)
   function tellHeader() {
     if (root.service) root.service.setHeader(root, root.hasHeader)
@@ -161,12 +159,34 @@ BarWidget {
     root.controller.openTabMenu(id, x, top + y, window.screen)
   }
 
-  // Public `api: 1` actions handed to a full custom `tabs` strip replacement.
+  // What a widget in the `header` or `tabs` slot gets as `spaces`, if it has
+  // the property. Only ever added to, so that a widget written for it keeps
+  // working.
   QtObject {
-    id: stripActions
+    id: spacesApi
+    // The space shown on this bar's screen, and its tabs:
+    // `{ id, slot, label, named, status, active }` (Spaces.publicTab).
+    readonly property string space: root.live.space
+    readonly property var tabs: root.live.tabs.map(Spaces.publicTab)
+    readonly property bool sidebarOpen: !!root.sidebar && root.sidebar.opened
+    // The tab being renamed, by its id, and the name typed so far.
+    readonly property string renaming: {
+      var id = root.controller ? root.controller.renaming : ""
+      return id && root.live.tabs.some(function(tab) { return tab.id === id }) ? id : ""
+    }
+    readonly property string renameText: spacesApi.renaming && root.controller ? root.controller.nameText : ""
+
+    // A tab by its id, or its number.
     function goToTab(target) { root.run(["space", "tab", "go", String(target)]) }
     function newTab() { root.run(["space", "tab", "new"]) }
-    function openTabMenu(id, x, y) { root.openTabMenu(id, x, y) }
+    // Starts renaming a tab, by its id, or ("") the one you are on. Spaces
+    // takes the keys: Enter keeps the name, Escape drops it.
+    function renameTab(id) { if (root.controller) root.controller.renameTab(String(id || "")) }
+    // Moves a tab to a position, from 1.
+    function reorderTab(id, position) { root.run(["space", "tab", "reorder", String(id), String(position)]) }
+    // Opens a tab's menu at a point on the bar's window: `mapToItem(null, x, y)`.
+    function openTabMenu(id, x, y) { root.openTabMenu(String(id), x, y) }
+    function toggleSidebar() { root.toggleSidebar() }
   }
 
   // The background, from the screen's edge to where the windows begin, over
@@ -211,76 +231,155 @@ BarWidget {
     }
   }
 
-  Loader {
-    active: root.hasHeader
+  // The `header` slot, over the sidebar's rail: Spaces' own across the
+  // recess, or another widget in the rail's icon column.
+  Item {
+    id: headerSlot
+    visible: root.hasHeader
     x: -root.origin.x
     y: -root.origin.y
     width: root.edge
     height: root.barSize
-    sourceComponent: BarHeader {
-      sidebar: root.sidebar
-      barSize: root.barSize
-      foreground: root.foreground
-      accent: root.accent
-      hover: root.hover
-      screenName: root.screenName
-      onToggleRequested: root.toggleSidebar()
-      onMenuRequested: root.run(["omarchy-shell", "shell", "toggle", "omarchy.menu", "{\"menu\":\"root\"}"])
+    clip: true
+    readonly property bool own: !!root.headerEntry && (root.headerEntry.id === "spaces.header" || !headerHost.found)
+
+    Loader {
+      active: root.hasHeader && headerSlot.own
+      anchors.fill: parent
+      sourceComponent: BarHeader {
+        sidebar: root.sidebar
+        barSize: root.barSize
+        foreground: root.foreground
+        accent: root.accent
+        hover: root.hover
+        screenName: root.screenName
+        onToggleRequested: root.toggleSidebar()
+        onMenuRequested: root.run(["omarchy-shell", "shell", "toggle", "omarchy.menu", "{\"menu\":\"root\"}"])
+      }
+    }
+
+    HostedWidget {
+      id: headerHost
+      entry: root.hasHeader && root.headerEntry.id !== "spaces.header" ? root.headerEntry : null
+      x: Math.round((root.sidebar ? root.sidebar.axis : 0) - width / 2)
+      y: Math.round((parent.height - height) / 2)
     }
   }
 
-  Component {
-    id: builtinStripComponent
-    TabsStrip {
-      live: root.live
-      service: root.service
-      controller: root.controller
-      screenName: root.screenName
-      vertical: root.vertical
-      barSize: root.barSize
-      origin: root.origin
-      tabsX: root.tabsX
-      maxWidth: root.maxWidth
-      theme: root.viewTheme
-      tabViewNode: root.tabsCfg.tab
-      newTabViewNode: root.tabsCfg.newTab
-      numerals: root.tabsCfg.numerals
-      labels: root.tabsCfg.labels
-      onGoToTab: function(target) { root.run(["space", "tab", "go", target]) }
-      onNewTabRequested: root.run(["space", "tab", "new"])
-      onTabMenuRequested: function(id, x, y) { root.openTabMenu(id, x, y) }
-      onReorderRequested: function(id, pos) { root.run(["space", "tab", "reorder", id, String(pos)]) }
-    }
-  }
-
-  // The `tabs` strip: built-in TabsStrip (with swappable `tab` and `newTab`
-  // views), or a custom full-strip view when `tabs` is set to a path.
+  // The `tabs` slot: Spaces' own tabs, or another widget.
   Item {
     id: tabsHost
-    visible: root.tabsCfg.strip.mode !== "hidden"
+    readonly property bool own: !!root.tabsEntry && (root.tabsEntry.id === "spaces.tabs" || !tabsWidget.found)
     x: root.vertical ? 0 : root.tabsX
-    implicitWidth: visible ? stripView.implicitWidth : 0
-    implicitHeight: visible ? stripView.implicitHeight : 0
+    implicitWidth: tabsHost.own ? ownTabs.implicitWidth : tabsWidget.implicitWidth
+    implicitHeight: tabsHost.own ? ownTabs.implicitHeight : tabsWidget.implicitHeight
     width: implicitWidth
     height: implicitHeight
 
-    ViewLoader {
-      id: stripView
+    Loader {
+      id: ownTabs
+      active: tabsHost.own
       anchors.fill: parent
-      node: root.tabsCfg.strip
-      fallbackComponent: builtinStripComponent
-      service: root.service
-      props: root.tabsCfg.strip.mode === "custom" ? ({
-        space: root.live.space,
-        tabs: root.live.tabs.map(Spaces.tabViewModel),
-        cells: Spaces.tabCells(root.live.tabs, root.live.space === "home").map(function(c) {
-          return c.tab ? { tab: Spaces.tabViewModel(c.tab), index: c.index } : c
-        }),
-        vertical: root.vertical,
-        maxWidth: root.maxWidth,
-        theme: root.viewTheme,
-        actions: stripActions,
-      }) : null
+      sourceComponent: TabsStrip {
+        live: root.live
+        controller: root.controller
+        screenName: root.screenName
+        vertical: root.vertical
+        barSize: root.barSize
+        origin: root.origin
+        tabsX: root.tabsX
+        maxWidth: root.maxWidth
+        theme: root.tabsTheme
+        numerals: root.tabsSettings.numerals === false ? false
+          : Array.isArray(root.tabsSettings.numerals) ? root.tabsSettings.numerals : null
+        labels: root.tabsSettings.labels !== false
+        newTab: root.tabsSettings.newTab !== false
+        onGoToTab: function(target) { root.run(["space", "tab", "go", target]) }
+        onNewTabRequested: root.run(["space", "tab", "new"])
+        onTabMenuRequested: function(id, x, y) { root.openTabMenu(id, x, y) }
+        onReorderRequested: function(id, pos) { root.run(["space", "tab", "reorder", id, String(pos)]) }
+      }
+    }
+
+    HostedWidget {
+      id: tabsWidget
+      entry: root.tabsEntry && root.tabsEntry.id !== "spaces.tabs" ? root.tabsEntry : null
+      maxWidth: root.maxWidth
+    }
+  }
+
+  // Another bar widget in a slot: a registered one by its id, or a custom QML
+  // module, loaded and handed its props as the bar does (and `spaces`). Until
+  // it's `found`, the slot shows Spaces' own: a plugin's widget is registered
+  // only while the shell sees its id in shell.json, which this entry, inside
+  // Spaces', isn't, so it has to be in `plugins` too.
+  component HostedWidget: Item {
+    id: host
+    property var entry: null
+    property real maxWidth: Infinity
+    readonly property string customUrl: Spaces.customModuleUrl(host.entry, root.home)
+    readonly property var registered: {
+      var registry = root.service ? root.service.barWidgetRegistry : null
+      if (!host.entry || host.customUrl || !registry) return null
+      var revision = registry.revision
+      var widgets = registry.widgets
+      return widgets && widgets[host.entry.id] ? widgets[host.entry.id].component : null
+    }
+    readonly property var item: registryLoader.item || moduleLoader.item
+    readonly property bool found: !!host.item
+
+    // Not bound to the item's `visible`, which is false while any parent is
+    // hidden, so a hidden slot would never show it again.
+    implicitWidth: host.item && host.item.visible ? (root.vertical ? root.barSize : host.item.implicitWidth) : 0
+    implicitHeight: host.item && host.item.visible ? (root.vertical ? host.item.implicitHeight : root.barSize) : 0
+    width: implicitWidth
+    height: implicitHeight
+
+    // Two loaders, since setting `source` clears `sourceComponent`.
+    Loader {
+      id: registryLoader
+      active: !!host.registered
+      sourceComponent: host.registered
+      width: host.width
+      height: host.height
+      onLoaded: host.inject()
+    }
+
+    Loader {
+      id: moduleLoader
+      active: !!host.entry && host.customUrl !== ""
+      source: active ? host.customUrl : ""
+      width: host.width
+      height: host.height
+      onLoaded: host.inject()
+      onStatusChanged: if (status === Loader.Error) console.warn("omarchy-spaces: couldn't load", host.customUrl)
+    }
+
+    onEntryChanged: host.inject()
+    onMaxWidthChanged: if (host.item && "maxWidth" in host.item) host.item.maxWidth = host.maxWidth
+    Connections {
+      target: root
+      function onBarChanged() { host.inject() }
+      function onFixedEdgeChanged() { host.inject() }
+    }
+
+    function inject() {
+      var target = host.item
+      if (!target || !host.entry) return
+      if ("fixedEdge" in target) target.fixedEdge = root.fixedEdge
+      if ("bar" in target) target.bar = root.bar
+      if ("moduleName" in target) target.moduleName = host.entry.id
+      if ("settings" in target) target.settings = host.entry.settings
+      if ("spaces" in target) target.spaces = spacesApi
+      if ("maxWidth" in target) target.maxWidth = host.maxWidth
+    }
+
+    // Say so when a plugin's widget doesn't turn up, rather than only showing
+    // Spaces' own. (A custom module that fails says so as it loads.)
+    Timer {
+      running: !!host.entry && !host.customUrl && !host.found
+      interval: 5000
+      onTriggered: console.warn("omarchy-spaces: no bar widget \"" + host.entry.id + "\" for the slot; is it in shell.json's plugins?")
     }
   }
 }

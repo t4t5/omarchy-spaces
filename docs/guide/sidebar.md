@@ -34,44 +34,100 @@ omarchy plugin enable omarchy.menu --section left --index 0
 
 ## Customizing the bar
 
-Spaces keeps the behaviour (clicks, drag-to-reorder, inline renaming, menus, width cap, sliding with the sidebar) and lets you customize the bar on its `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json`.
+The `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` has two slots: `header`, in the corner over the sidebar, and `tabs`, past the sidebar's edge. Each holds a bar widget entry, written the same way as an entry in the bar's own layout.
 
-For simple tweaks — such as Japanese numerals, hiding tab labels, or hiding `+` — configure `tabs` directly:
+### Spaces' own tabs
+
+Leave `tabs` out and you get Spaces' own tabs. An object without an `id` changes their settings:
 
 ```json
 {
   "id": "com.t4t5.spaces",
   "tabs": {
     "numerals": ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"],
-    "labels": false
+    "labels": false,
+    "newTab": false
   }
 }
 ```
 
-- `numerals`: Arabic (`"1"`–`"10"`) by default, an array of custom strings for slots 1–10 (also used for empty gap slots in `home` and inline rename), or `false` to hide numerals.
-- `labels`: `true` by default (shows the tab's custom name, foreground process, folder, or app name), or `false` to show only numerals.
-- `newTab`: `false` to hide the `+` button, or a `.qml` path to replace it.
+- `numerals`: a list of strings to number tabs 1–10 with, or `false` for no numbers.
+- `labels`: `false` shows only the numbers, without the tabs' names.
+- `newTab`: `false` hides the `+`.
 
-### Custom QML views
+### Another widget in a slot
 
-For full visual control, any node in the tree can point to your own `.qml` file — a file path replaces that node, an object keeps the built-in and overrides its children, `false` hides optional nodes (`newTab`, `header`), and leaving it out keeps the default:
+Put any bar widget in a slot by its id, or one of your own as a custom QML module, as the bar takes them: `{ "id": "my-tabs", "type": "qml" }` loads `~/.config/omarchy/bar/modules/my-tabs.qml`, and `{ "id": "my-tabs", "source": "~/path/to/MyTabs.qml" }` loads that file. The rest of the entry is the widget's settings.
 
 ```json
 {
   "id": "com.t4t5.spaces",
-  "tabs": {
-    "tab": "~/.config/omarchy/spaces/MyTab.qml"
-  }
+  "header": "io.github.someone.logo",
+  "tabs": { "id": "io.github.someone.kanji-tabs", "compact": true }
 }
 ```
 
-Override `tabs.tab` (the tab cell: background, hover, layout, parts), `tabs.newTab`, or `tabs` (the whole strip inside the sliding frame).
+- A plugin's widget is only loaded while its id appears in `shell.json`'s layout or `plugins` list, and Spaces' entry doesn't count. Add it to `plugins` as well: `"plugins": [{ "id": "io.github.someone.kanji-tabs" }]`.
+- Until the widget loads, or if it never does, the slot shows Spaces' own.
+- `"header": false` leaves the corner to the sidebar, which then draws its own header. Any widget in `header` replaces the sidebar's header, so it should give a way to open the sidebar (`spaces.toggleSidebar()`).
+- Widgets get the bar's API that Spaces has. Omarchy's own widgets that rely on the bar's services may not work in a slot.
 
-Each custom view declares `readonly property int api: 1`, reports `implicitWidth` and `implicitHeight`, and fills the width Spaces gives it. If a view fails to load or declares a different `api`, Spaces falls back to the built-in view and notifies once. Saving a custom `.qml` file reloads it live.
+### Writing a widget for a slot
 
-### View contract (`api: 1`)
+A widget for a slot is an ordinary bar widget: Spaces gives it `bar`, `moduleName` and `settings` if it has those properties, as the bar does. It also gets:
 
-- **`tabs.tab`**: receives `tab` (`{ id, slot, label, named, status, windows, active }` or `null` on a gap), `slot`, `gap`, `gapRun`, `current`, `hovered`, `dragged`, `menuOpen`, `editing`, `vertical`, `theme`, and pre-bound `parts` (`parts.status`, `parts.editor`).
-- **`tabs.newTab`**: receives `hovered`, `vertical`, `count`, and `theme`.
-- **`tabs` (full strip)**: receives `space`, `tabs`, `cells`, `vertical`, `maxWidth`, `theme`, and `actions` (`goToTab(target)`, `newTab()`, `openTabMenu(id, x, y)`).
-- **`theme`**: `foreground`, `accent`, `hover`, `fontFamily`, `fontSize`, `barSize`, `padding`, `cornerRadius`, `statusColors`, `palette`.
+- `maxWidth`: in the `tabs` slot, the room left before the bar's clock (`Infinity` when there's no limit). The widget should fit itself in it.
+- `spaces`: the space and its tabs, and what you can do with them.
+
+`spaces` has:
+
+- `space`: the id of the space shown on this screen.
+- `tabs`: its tabs, each `{ id, slot, label, named, status, active }`. `status` is `""`, `"working"`, `"done"` or `"waiting"`.
+- `sidebarOpen`: whether the sidebar is expanded.
+- `renaming` and `renameText`: the id of the tab being renamed, and the name typed so far. Spaces takes the keys: Enter keeps the name, Escape drops it.
+- `goToTab(target)`: by a tab's id or its number.
+- `newTab()`.
+- `renameTab(id)`: starts renaming a tab, or with `""` the one you're on.
+- `reorderTab(id, position)`: moves a tab to a position, counting from 1.
+- `openTabMenu(id, x, y)`: opens a tab's menu at a point in the bar's window, from `mapToItem(null, x, y)`.
+- `toggleSidebar()`.
+
+Fields are only ever added to `spaces`, so a widget written for it keeps working.
+
+```qml
+import QtQuick
+import qs.Commons
+
+Item {
+  property var bar: null
+  property var spaces: null
+  property real maxWidth: Infinity
+
+  implicitWidth: row.implicitWidth
+  implicitHeight: bar ? bar.barSize : 0
+
+  Row {
+    id: row
+    anchors.verticalCenter: parent.verticalCenter
+    spacing: Style.spacing.md
+
+    Repeater {
+      model: spaces ? spaces.tabs : []
+
+      Text {
+        required property var modelData
+        textFormat: Text.PlainText
+        text: modelData.slot
+        color: modelData.active ? Color.accent : Color.bar.text
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
+
+        MouseArea {
+          anchors.fill: parent
+          onClicked: spaces.goToTab(modelData.id)
+        }
+      }
+    }
+  }
+}
+```

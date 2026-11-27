@@ -3,15 +3,13 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import qs.Commons
 
-// The built-in `tabs.newTab` view (`+`), drawn through the `api: 1` contract.
-// Click and hover state are owned by the host (`TabsStrip.qml`).
+// How the built-in tabs (TabsStrip.qml) draw the `+` after them. TabsStrip.qml
+// handles the pointer.
 Item {
   id: root
 
-  readonly property int api: 1
   property bool hovered: false
   property bool vertical: false
-  property int count: 0
   property var theme: null
 
   readonly property color foreground: root.theme ? root.theme.foreground : Color.bar.text

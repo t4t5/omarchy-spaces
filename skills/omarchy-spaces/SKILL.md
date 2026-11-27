@@ -1,7 +1,7 @@
 ---
 name: omarchy-spaces
 description: >
-  Customize and control Omarchy Spaces (com.t4t5.spaces): project-based spaces and tabs on Omarchy/Hyprland. Use when customizing Spaces views (custom QML tab views such as Japanese numerals, hiding or replacing the + button or bar header), editing ~/.config/omarchy-spaces/config.toml (restore, agent sounds), setting up Spaces keybindings in ~/.config/hypr/bindings.lua, or running the `space` CLI. Triggers: omarchy-spaces, com.t4t5.spaces, spaces bar, spaces sidebar, spaces tabs, space CLI, spaces keybindings, spaces config, custom tab view.
+  Customize and control Omarchy Spaces (com.t4t5.spaces): project-based spaces and tabs on Omarchy/Hyprland. Use when customizing the Spaces bar (tab numerals such as kanji, hiding labels or the + button, or putting another bar widget or a custom QML widget in its header or tabs slot), editing ~/.config/omarchy-spaces/config.toml (restore, agent sounds), setting up Spaces keybindings in ~/.config/hypr/bindings.lua, or running the `space` CLI. Triggers: omarchy-spaces, com.t4t5.spaces, spaces bar, spaces sidebar, spaces tabs, space CLI, spaces keybindings, spaces config, custom tabs widget.
 ---
 
 # Omarchy Spaces
@@ -12,18 +12,18 @@ Omarchy Spaces (`com.t4t5.spaces`) adds project-based spaces (sidebar rail on th
 
 - **Never edit files inside `~/.config/omarchy/plugins/com.t4t5.spaces/`** — plugin updates overwrite them.
 - Edit user config instead:
-  - `~/.config/omarchy/shell.json` — explicit view tree on the `com.t4t5.spaces` entry. Hot-reloads on save.
-  - `~/.config/omarchy/spaces/*.qml` (or any path you reference in `shell.json`) — custom QML views. Reloaded live when saved.
+  - `~/.config/omarchy/shell.json` — the `header` and `tabs` slots on the `com.t4t5.spaces` entry. Applied when saved.
+  - `~/.config/omarchy/bar/modules/<id>.qml` (or any file named by `source`) — custom QML widgets for a slot.
   - `~/.config/omarchy-spaces/config.toml` — restore and sound settings. Applied live.
   - `~/.config/hypr/bindings.lua` — Spaces keybindings. Validate with `hyprctl reload && hyprctl configerrors`.
-- Do **not** clone `omarchy.workspaces` to customize Spaces tabs: `omarchy.workspaces` only reads numeric Hyprland workspaces, whereas Spaces uses named workspaces (`s1:1`, …) and drives tabs from `space watch`. Swap the `tabs.tab` view instead.
+- Do **not** clone `omarchy.workspaces` to customize Spaces tabs: `omarchy.workspaces` only reads numeric Hyprland workspaces, whereas Spaces uses named workspaces (`s1:1`, …) and drives tabs from `space watch`. Put a widget in Spaces' `tabs` slot instead.
 - To place other Omarchy bar widgets beside Spaces, add them before or after `com.t4t5.spaces` in `bar.layout.left` (widgets after it already slide with it; `omarchy.menu` before it takes the corner while the sidebar keeps its header).
 
 ## Customizing the bar (`~/.config/omarchy/shell.json`)
 
-Spaces keeps all behaviour and framing (clicks, drag-to-reorder, inline rename, context menus, width cap before the clock, sliding edge).
+The `com.t4t5.spaces` entry has two slots: `header` (the corner over the sidebar) and `tabs` (past the sidebar's edge). Each takes a bar widget entry, written as in the bar's own layout. Full reference, including what a widget gets: `~/.config/omarchy/plugins/com.t4t5.spaces/docs/guide/sidebar.md`.
 
-For simple tab tweaks (e.g. Japanese/Roman numerals, compact numbers without titles, hiding `+`), configure `tabs` directly on the `com.t4t5.spaces` entry:
+Spaces' own tabs take settings from an object without an `id`:
 
 ```json
 {
@@ -32,27 +32,19 @@ For simple tab tweaks (e.g. Japanese/Roman numerals, compact numbers without tit
     "numerals": ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"],
     "labels": false,
     "newTab": false
-  },
-  "sidebar": {
-    "header": false
   }
 }
 ```
 
-`numerals` defaults to Arabic (`"1"`–`"10"`), takes an array of custom strings, or `false` to hide numerals; `labels` defaults to `true` (process/folder/app/custom name), or `false` to hide labels.
+`numerals`: strings for tabs 1–10, or `false` for none. `labels: false` hides tab names. `newTab: false` hides `+`.
 
-For full visual control, any node follows one rule: omitted keeps the default, `"~/path/to/View.qml"` replaces that node with a custom QML view, `{ ... }` keeps the built-in host and overrides children, and `false` hides optional nodes (`tabs.newTab`, `sidebar.header`).
+To replace a slot, give it a widget entry:
+- A registered bar widget by id: `"tabs": "io.github.someone.kanji-tabs"`. Also add `{ "id": "io.github.someone.kanji-tabs" }` to the top-level `plugins` list, or the shell won't load it.
+- A custom QML widget: `"tabs": { "id": "my-tabs", "type": "qml" }` (loads `~/.config/omarchy/bar/modules/my-tabs.qml`) or `{ "id": "my-tabs", "source": "~/path/MyTabs.qml" }`. Other keys become its `settings`.
+- `"header": false` gives the corner back to the sidebar, which draws its own header. A widget in `header` replaces that header, so it should call `spaces.toggleSidebar()`.
+- Until a widget loads, the slot shows Spaces' own.
 
-### Custom QML view contract (`api: 1`)
-
-Every custom view must declare `readonly property int api: 1`, report `implicitWidth` and `implicitHeight` (never derive `implicitWidth` from `width`), and set `textFormat: Text.PlainText` on any `Text` displaying dynamic tab/space labels. On a load error or `api` mismatch, Spaces falls back to the built-in view and notifies once.
-
-- **`tabs.tab`**: replaces a tab cell (background, hover, layout, parts). Receives `tab` (`{ id, slot, label, named, status, windows, active }` or `null` on a gap in `home`), `slot` (int), `gap` (bool), `gapRun` (bool), `current`, `hovered`, `dragged`, `menuOpen`, `editing`, `vertical`, `theme`, and pre-bound `parts`:
-  - `parts.status`: pre-bound `StatusDot` `Component` — mount with `Loader { active: !!tab && tab.status !== ""; sourceComponent: parts ? parts.status : null }`.
-  - `parts.editor`: pre-bound inline name editor (text + selection + caret, without the slot number) — mount with `Loader { active: editing && !vertical; sourceComponent: parts ? parts.editor : null }`.
-- **`tabs.newTab`**: receives `hovered`, `vertical`, `count`, `theme`.
-- **`tabs` (full strip path)**: replaces the entire strip inside the sliding frame; receives `space`, `tabs`, `cells`, `vertical`, `maxWidth`, `theme`, and `actions` (`goToTab(target)`, `newTab()`, `openTabMenu(id, x, y)`).
-- **`theme`**: `{ foreground, accent, hover, fontFamily, fontSize, barSize, padding, cornerRadius, statusColors, palette }`.
+A slot widget is an ordinary bar widget (`bar`, `moduleName`, `settings`), plus `maxWidth` (in `tabs`: room before the clock) and `spaces`: `space`, `tabs` (`{ id, slot, label, named, status, active }`), `sidebarOpen`, `renaming`, `renameText`, `goToTab(idOrNumber)`, `newTab()`, `renameTab(id)`, `reorderTab(id, position)`, `openTabMenu(id, x, y)` (window coordinates from `mapToItem(null, x, y)`), `toggleSidebar()`. Set `textFormat: Text.PlainText` on any `Text` showing tab names. A new `.qml` file in a folder the shell has already loaded from may need `omarchy restart shell` before it loads.
 
 ## Configuration (`~/.config/omarchy-spaces/config.toml`)
 

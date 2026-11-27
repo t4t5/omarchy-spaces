@@ -542,16 +542,14 @@ export function recessAlpha(r, g, b) {
   return luminance > 0.5 ? 0.07 : 0.3
 }
 
-// ---------------------------------------------------------------- views (api 1)
+// ---------------------------------------------------------------- slots
 //
-// Swappable view config and stable plain-object view models. Each node in
-// `shell.json` follows one rule:
-//   - omitted (undefined): built-in default
-//   - false / null:        hidden (for optional nodes like `newTab` or `header`)
-//   - string path:         custom QML view replacing that node
-//   - plain object:        built-in host with child overrides
-
-export const VIEW_API = 1
+// The `com.t4t5.spaces` entry on the bar has two slots, `header` (the corner
+// over the sidebar) and `tabs` (past the sidebar's edge). Each holds a bar
+// widget entry, as the bar's own layout does: Spaces' own (`spaces.header`,
+// `spaces.tabs`) by default, any registered bar widget by its id, or a custom
+// QML module (`{ id, type: "qml" }` or `{ id, source }`), with the rest of the
+// entry as its settings. `false` leaves the slot empty.
 
 // Whether the widget `id` sits first in the bar's left section, on a bar along
 // the top or bottom, so the corner over the sidebar is its own.
@@ -559,6 +557,36 @@ export function firstOnBar(config, id) {
   if (!config || config.position === "left" || config.position === "right") return false
   const left = config.layout && config.layout.left
   return Array.isArray(left) && !!left[0] && (left[0] === id || left[0].id === id)
+}
+
+// A bar widget entry, a string id or an object, as `{ id, settings }`, the
+// settings being the rest of it; or null when it names nothing.
+export function parseBarEntry(entry) {
+  if (typeof entry === "string") {
+    const id = entry.trim()
+    return id ? { id, settings: {} } : null
+  }
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null
+  const id = typeof entry.id === "string" ? entry.id.trim() : ""
+  if (!id) return null
+  const settings = {}
+  for (const key of Object.keys(entry)) if (key !== "id") settings[key] = entry[key]
+  return { id, settings }
+}
+
+// The entry in slot `key` of Spaces' `settings`: `fallback` when it isn't set
+// or names nothing, with the settings of an object without an id (as
+// `{ numerals: [...] }`); null when it's `false`.
+export function slotEntry(settings, key, fallback) {
+  const value = settings ? settings[key] : undefined
+  if (value === false || value === null) return null
+  const entry = parseBarEntry(value)
+  if (entry) return entry
+  const own = parseBarEntry(fallback)
+  if (own && value && typeof value === "object" && !Array.isArray(value)) {
+    for (const k of Object.keys(value)) if (k !== "id") own.settings[k] = value[k]
+  }
+  return own
 }
 
 // Expands a leading `~/` or `$HOME/` against `home`.
@@ -571,26 +599,31 @@ export function expandPath(path, home) {
   return value
 }
 
-// Parses one node of the view tree into `{ mode, path, url, children, error }`:
-//   mode: "default" | "custom" | "hidden" | "error"
-export function parseViewNode(value, home) {
-  if (value === undefined) return { mode: "default", path: "", url: "", children: {}, error: "" }
-  if (value === false || value === null) return { mode: "hidden", path: "", url: "", children: {}, error: "" }
-  if (typeof value === "string") {
-    const expanded = expandPath(value, home)
-    const url = fileUrl(expanded)
-    if (!url) return { mode: "error", path: value, url: "", children: {}, error: `Invalid view path "${value}"` }
-    return { mode: "custom", path: expanded, url, children: {}, error: "" }
-  }
-  if (typeof value === "object" && !Array.isArray(value)) {
-    return { mode: "default", path: "", url: "", children: value, error: "" }
-  }
-  return { mode: "error", path: "", url: "", children: {}, error: "View entry must be a file path, object, or false" }
+// The file:// URL of a custom QML module entry, found as the bar finds one:
+// its `source`, or with `type: "qml"`, `~/.config/omarchy/bar/modules/<id>.qml`.
+// "" for any other entry.
+export function customModuleUrl(entry, home) {
+  if (!entry) return ""
+  const settings = entry.settings || {}
+  if (settings.type && settings.type !== "qml") return ""
+  if (typeof settings.source === "string" && settings.source.trim()) return fileUrl(expandPath(settings.source, home))
+  if (settings.type !== "qml" || entry.id.includes("..") || entry.id.startsWith("/")) return ""
+  return fileUrl(String(home || "").replace(/\/$/, "") + "/.config/omarchy/bar/modules/" + entry.id + ".qml")
 }
 
-// The numeral shown for a tab slot `1..10`: Arabic (`"1"`–`"10"`) by default,
-// mapped through a custom `numerals` array (e.g. kanji), or `""` when hidden
-// (`numerals: false`) or without a slot.
+// Whether the sidebar's header, its toggle and title, sits on the bar: when
+// the widget `id` comes first in the bar's left section, on a bar along the
+// top or bottom, and its `header` slot isn't empty. With something before it,
+// as Omarchy's menu, or `header: false`, the sidebar keeps its header.
+export function headerOnBar(config, id) {
+  if (!firstOnBar(config, id)) return false
+  const entry = config.layout.left[0]
+  return slotEntry(typeof entry === "object" ? entry : null, "header", "spaces.header") !== null
+}
+
+// The numeral shown for a tab slot `1..10`: its own (`"1"`–`"10"`), the one at
+// its place in a custom `numerals` list (as kanji), or "" with `numerals`
+// false or without a slot.
 export function numeralFor(slot, numerals) {
   if (!(slot > 0) || numerals === false) return ""
   if (Array.isArray(numerals)) {
@@ -600,103 +633,17 @@ export function numeralFor(slot, numerals) {
   return String(slot)
 }
 
-// Resolves `tabs`, `tabs.tab`, `tabs.newTab`, and built-in tab options
-// (`numerals`, `labels`) from the `com.t4t5.spaces` entry.
-export function tabsConfig(settings, home) {
-  const root = parseViewNode(settings ? settings.tabs : undefined, home)
-  const children = root.mode === "default" ? root.children : {}
-  const numerals = children.numerals === false ? false
-    : Array.isArray(children.numerals) ? children.numerals : null
-  return {
-    strip: root,
-    tab: parseViewNode(children.tab, home),
-    newTab: parseViewNode(children.newTab, home),
-    numerals,
-    labels: children.labels !== false,
-  }
-}
-
-// Resolves `sidebar` and `sidebar.header` from the `com.t4t5.spaces` entry.
-export function sidebarConfig(settings, home) {
-  const root = parseViewNode(settings ? settings.sidebar : undefined, home)
-  const children = root.mode === "default" ? root.children : {}
-  return {
-    sidebar: root,
-    header: parseViewNode(children.header, home),
-  }
-}
-
-// Whether the sidebar's header, its toggle and title, sits on the bar: when
-// the widget `id` comes first in the bar's left section, on a bar along the
-// top or bottom, and `sidebar.header` isn't hidden (`false`). With something
-// before it, as Omarchy's menu, the sidebar keeps its header.
-export function headerOnBar(config, id) {
-  if (!firstOnBar(config, id)) return false
-  const entry = config.layout.left[0]
-  if (entry && typeof entry === "object") {
-    const sb = sidebarConfig(entry, "")
-    if (sb.header.mode === "hidden") return false
-  }
-  return true
-}
-
-// Plain `api: 1` tab object handed to views, detached from `space watch`'s
-// internal wire format. Null for an empty gap cell.
-export function tabViewModel(tab) {
-  if (!tab) return null
+// A tab as a widget in the `tabs` slot sees it, apart from `space watch`'s
+// own form of it.
+export function publicTab(tab) {
   return {
     id: String(tab.id || ""),
     slot: number(tab.slot),
     label: String(tab.label || ""),
     named: tab.named === true,
     status: status(tab.status),
-    windows: number(tab.windows),
     active: tab.active === true,
   }
-}
-
-// Plain `api: 1` theme object handed to views.
-export function themeViewModel(raw) {
-  const t = raw || {}
-  return {
-    foreground: t.foreground || "",
-    accent: t.accent || "",
-    hover: t.hover || "",
-    fontFamily: String(t.fontFamily || ""),
-    fontSize: number(t.fontSize),
-    barSize: number(t.barSize),
-    padding: number(t.padding),
-    cornerRadius: number(t.cornerRadius),
-    statusColors: t.statusColors || null,
-    palette: Array.isArray(t.palette) ? t.palette : DEFAULT_PALETTE,
-  }
-}
-
-// Plain `api: 1` props handed to a `tab` view for one cell (tab or gap).
-export function tabCellProps(cell, state, theme, parts) {
-  const tab = cell && cell.tab ? tabViewModel(cell.tab) : null
-  const slot = tab ? tab.slot : number(cell && cell.gap)
-  const s = state || {}
-  return {
-    tab,
-    slot,
-    gap: !tab,
-    gapRun: !tab && !!(cell && cell.run),
-    current: !!tab && tab.active,
-    hovered: s.hovered === true,
-    dragged: s.dragged === true,
-    menuOpen: s.menuOpen === true,
-    editing: s.editing === true,
-    vertical: s.vertical === true,
-    theme,
-    parts: parts || null,
-  }
-}
-
-// Appends a cache-busting query string for live-reloading local QML views.
-export function versionedUrl(url, revision) {
-  if (!url) return ""
-  return revision > 0 ? `${url}?v=${revision}` : url
 }
 
 // The bar's background, as Omarchy's shell config holds it: opaque, glassy
