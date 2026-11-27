@@ -216,15 +216,6 @@ Item {
     root.iconFor = row.id
   }
 
-  // Opens the icon picker for a space at a point on `screen`, for custom
-  // sidebar widgets (`spaces.openIconPicker`).
-  function openIconPickerAt(id, x, y, screen) {
-    var row = root.rows.find(function(r) { return r.id === id })
-    if (!row || row.id === "home") return
-    root.placeMenu(x, y, screen)
-    root.openIconPicker(row)
-  }
-
   function closeIconPicker() {
     root.iconFor = ""
     root.iconPreview = ""
@@ -297,15 +288,15 @@ Item {
     root.startNaming(target, tab.label, tab.named)
   }
 
-  // Renames the space you are in (or `id`, when given), from the keyboard.
-  // `home` has no name to change. A sidebar collapsed, or expanded just for a
-  // search, is expanded just for the rename.
-  function renameSpace(id) {
-    var target = id ? String(id) : root.here.space
-    if (!target || target === "home" || root.renaming === target || !root.sidebar) return
+  // Renames the space you are in, from the keyboard. `home` has no name to
+  // change. A sidebar collapsed, or expanded just for a search, is expanded
+  // just for the rename.
+  function renameSpace() {
+    var id = root.here.space
+    if (!id || id === "home" || root.renaming === id || !root.sidebar) return
     var only = !root.sidebar.opened || (root.sidebar.searching && root.sidebar.searchOnly)
     if (!root.sidebar.opened) root.sidebar.show()
-    var row = root.rows.find(function(r) { return r.id === target })
+    var row = root.rows.find(function(r) { return r.id === id })
     if (!row) {
       if (only) root.sidebar.hide()
       return

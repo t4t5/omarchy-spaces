@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, pluginSettings, sidebarSlot, tabsSlot, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicSpaceRow, publicTab, publicTerminal, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, pluginSettings, sidebarSlot, widgetWidths, tabsSlot, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicSpaceRow, publicTab, publicTerminal, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -327,28 +327,41 @@ test("hands widgets in a slot a space and tabs of their own", () => {
   assert.deepEqual(publicTab({ id: "s1:1", status: "bogus" }), { id: "s1:1", slot: 0, label: "", named: false, status: "", active: false })
 })
 
-test("reads the sidebar slot and plugin settings from barConfig", () => {
+test("reads the sidebar's settings and space widgets from barConfig", () => {
   const barConfig = {
     layout: {
-      left: [{ id: "com.t4t5.spaces", sidebar: { width: 260 }, sidebarWidget: { id: "my-sidebar", type: "qml", compact: true } }],
+      left: [{ id: "com.t4t5.spaces", sidebar: { width: 260, space: { widgets: [
+        { id: "space-git", type: "qml" },
+        "io.github.someone.pr",
+        { source: "~/Widget.qml", compact: true },
+        "com.t4t5.spaces",
+        { nothing: true },
+      ] } } }],
     },
   }
   const settings = pluginSettings(barConfig, "com.t4t5.spaces")
-  assert.deepEqual(sidebarSlot(settings), {
-    settings: { width: 260 },
+  assert.deepEqual(sidebarSlot(settings, "com.t4t5.spaces"), {
     width: 260,
-    widget: { id: "my-sidebar", settings: { type: "qml", compact: true } },
+    widgets: [
+      { id: "space-git", settings: { type: "qml" } },
+      { id: "io.github.someone.pr", settings: {} },
+      { id: "", settings: { source: "~/Widget.qml", compact: true } },
+    ],
     misplaced: false,
   })
-  assert.deepEqual(sidebarSlot(pluginSettings({ layout: { left: ["com.t4t5.spaces"] } }, "com.t4t5.spaces")), {
-    settings: {},
-    width: 0,
-    widget: null,
-    misplaced: false,
-  })
+  assert.deepEqual(sidebarSlot(pluginSettings({ layout: { left: ["com.t4t5.spaces"] } }, "com.t4t5.spaces"), "com.t4t5.spaces"),
+    { width: 0, widgets: [], misplaced: false })
+  assert.deepEqual(sidebarSlot({ sidebar: { space: { widgets: "space-git" } } }).widgets, [], "widgets is a list")
   assert.equal(sidebarSlot({ sidebar: "io.github.someone.sidebar" }).misplaced, true)
   assert.equal(sidebarSlot({ sidebar: { source: "~/Sidebar.qml" } }).misplaced, true)
   assert.equal(sidebarSlot({ sidebar: { width: -10 } }).width, 0)
+})
+
+test("shares a line between a space's widgets", () => {
+  assert.deepEqual(widgetWidths([40, 30], 200, 6), [40, 30], "room for both")
+  assert.deepEqual(widgetWidths([150, 30], 106, 6), [70, 30], "the wide one gives way")
+  assert.deepEqual(widgetWidths([150, 0, 150], 106, 6), [50, 0, 50], "no gap for one that's hidden")
+  assert.deepEqual(widgetWidths([], 100, 6), [])
 })
 
 test("offers rename, an icon and close, saying why close doesn't apply", () => {

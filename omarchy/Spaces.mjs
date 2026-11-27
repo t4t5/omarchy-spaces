@@ -571,7 +571,8 @@ export function recessAlpha(r, g, b) {
 // `tabsWidget`, a bar widget entry to show in their place, as the bar's own
 // layout takes one: a registered bar widget by its id, or a custom QML module
 // (`{ id, type: "qml" }` or `{ source }`), with the rest of the entry as its
-// settings.
+// settings. The sidebar's settings are in `sidebar`, its widgets among them,
+// in entries of the same form.
 
 // Whether the sidebar's header, its toggle and title, sits on the bar: when
 // the widget `id` comes first in the bar's left section, on a bar along the
@@ -618,23 +619,40 @@ export function pluginSettings(config, id) {
   return {}
 }
 
-// The `sidebar` slot as Spaces' `settings` set it: `{ settings, width, widget,
-// misplaced }`. `sidebar` holds Spaces' own sidebar settings (such as `width`),
-// and `sidebarWidget` is the bar widget or custom QML module to show in place
-// of Spaces' own sidebar. `misplaced` says `sidebar` looks like a widget entry,
-// which goes in `sidebarWidget`.
-export function sidebarSlot(settings) {
+// The sidebar's settings, from `sidebar` on Spaces' entry: `{ width, widgets,
+// misplaced }`. `width` is the expanded width (0 for the default), and
+// `widgets` the bar widget entries in `sidebar.space.widgets`, shown under
+// each space's name, in order. Spaces' own id is left out, as it can't hold
+// itself. `misplaced` says `sidebar` looks like a widget entry, which goes in
+// `sidebar.space.widgets`.
+export function sidebarSlot(settings, ownId) {
   const sidebar = settings ? settings.sidebar : undefined
-  const plain = !!sidebar && typeof sidebar === "object" && !Array.isArray(sidebar)
+  const plain = isPlainObject(sidebar)
   const width = plain && typeof sidebar.width === "number" && Number.isFinite(sidebar.width) && sidebar.width > 0
     ? Math.round(sidebar.width)
     : 0
+  const space = plain && isPlainObject(sidebar.space) ? sidebar.space : {}
+  const widgets = (Array.isArray(space.widgets) ? space.widgets : [])
+    .map(parseBarEntry)
+    .filter((entry) => entry && entry.id !== ownId)
   return {
-    settings: plain ? sidebar : {},
     width,
-    widget: settings ? parseBarEntry(settings.sidebarWidget) : null,
+    widgets,
     misplaced: typeof sidebar === "string" || (plain && ("id" in sidebar || "source" in sidebar || "type" in sidebar)),
   }
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+// How wide each of a space's widgets may be, from how wide each would be and
+// the room on the line, `gap` apart: each as wide as it would be, or, when
+// they don't all fit, no wider than a fair share (`fairCap`).
+export function widgetWidths(widths, room, gap) {
+  const shown = widths.filter((w) => w > 0).length
+  const cap = fairCap(widths, Math.max(0, room - gap * Math.max(0, shown - 1)))
+  return widths.map((w) => Math.min(w, cap))
 }
 
 // The `tabs` slot as Spaces' `settings` set it: `{ shown, settings, widget,
@@ -718,7 +736,8 @@ export function publicSpace(state, id) {
   }
 }
 
-// A space row as a widget (`sidebarWidget` or `tabsWidget`) sees it.
+// A space as a widget sees it: in `spaces` for a tabs widget, and as `space`
+// for a widget under its name in the sidebar.
 export function publicSpaceRow(row) {
   if (!row) {
     return { id: "", label: "", named: false, icon: "", folder: "", meta: {}, status: "", active: false, windows: -1, leftAt: 0, terminals: [] }

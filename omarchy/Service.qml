@@ -38,19 +38,34 @@ Item {
     root.headerBars = bars
   }
 
-  // The settings on the bar's `com.t4t5.spaces` entry, as reported by
-  // TabsWidget.qml, or read directly from `shell.barConfig` before it loads.
-  property var barSettings: null
-  function setSettings(settings) {
-    root.barSettings = settings || null
-  }
-  readonly property var effectiveSettings: root.barSettings
-    || Spaces.pluginSettings(root.shell ? root.shell.barConfig : null, (root.manifest && root.manifest.id) || "com.t4t5.spaces")
-  readonly property var sidebarSlot: Spaces.sidebarSlot(root.effectiveSettings)
+  readonly property string pluginId: (root.manifest && root.manifest.id) || "com.t4t5.spaces"
+  // The sidebar's settings, from `sidebar` on Spaces' entry in the bar's
+  // layout: its width, and the widgets under each space's name.
+  readonly property var sidebarSlot: Spaces.sidebarSlot(
+    Spaces.pluginSettings(root.shell ? root.shell.barConfig : null, root.pluginId), root.pluginId)
   function checkSidebarSlot() {
-    if (root.sidebarSlot.misplaced) console.warn("omarchy-spaces: `sidebar` holds Spaces' own sidebar settings; put another widget in `sidebarWidget`")
+    if (root.sidebarSlot.misplaced) console.warn("omarchy-spaces: `sidebar` holds the sidebar's settings; put widgets in `sidebar.space.widgets`")
   }
   onSidebarSlotChanged: root.checkSidebarSlot()
+
+  // Say so when a plugin's widget in `sidebar.space.widgets` doesn't turn up,
+  // once, rather than from every row. A plugin's widget is registered only
+  // while the shell sees its id in shell.json, which an entry inside Spaces'
+  // isn't, so it has to be in `plugins` too. (A custom module that fails says
+  // so as it loads.)
+  Timer {
+    running: root.sidebarSlot.widgets.some(function(entry) { return entry.id && !Spaces.customModuleUrl(entry, "/") })
+    interval: 5000
+    onTriggered: {
+      var registry = root.barWidgetRegistry
+      var widgets = registry ? registry.widgets : null
+      root.sidebarSlot.widgets.forEach(function(entry) {
+        if (!entry.id || Spaces.customModuleUrl(entry, "/")) return
+        if (!widgets || !widgets[entry.id])
+          console.warn("omarchy-spaces: no widget \"" + entry.id + "\" for sidebar.space.widgets; is it in shell.json's plugins?")
+      })
+    }
+  }
 
   function search() { sidebarItem.search() }
   function endSearch() { sidebarItem.endSearch() }
@@ -74,7 +89,7 @@ Item {
     controller: controllerItem
     look: Spaces.barLook(root.shell ? root.shell.barConfig : null)
     bar: root.shell ? root.shell.bar : null
-    sidebarWidget: root.sidebarSlot.widget
+    spaceWidgets: root.sidebarSlot.widgets
     barWidgetRegistry: root.barWidgetRegistry
   }
 

@@ -1,7 +1,7 @@
 ---
 name: omarchy-spaces
 description: >
-  Customize and control Omarchy Spaces (com.t4t5.spaces): project-based spaces and tabs on Omarchy/Hyprland. Use when customizing the Spaces bar (tab numerals such as kanji, hiding labels or the + button, or putting another bar widget or a custom QML widget in place of its tabs), editing ~/.config/omarchy-spaces/config.toml (restore, agent sounds), setting up Spaces keybindings in ~/.config/hypr/bindings.lua, or running the `space` CLI. Triggers: omarchy-spaces, com.t4t5.spaces, spaces bar, spaces sidebar, spaces tabs, space CLI, spaces keybindings, spaces config, custom tabs widget.
+  Customize and control Omarchy Spaces (com.t4t5.spaces): project-based spaces and tabs on Omarchy/Hyprland. Use when customizing the Spaces bar (tab numerals such as kanji, hiding labels or the + button, or putting another bar widget or a custom QML widget in place of its tabs, or adding widgets under each space's name in the sidebar), editing ~/.config/omarchy-spaces/config.toml (restore, agent sounds), setting up Spaces keybindings in ~/.config/hypr/bindings.lua, or running the `space` CLI. Triggers: omarchy-spaces, com.t4t5.spaces, spaces bar, spaces sidebar, spaces tabs, space CLI, spaces keybindings, spaces config, custom tabs widget.
 ---
 
 # Omarchy Spaces
@@ -12,8 +12,8 @@ Omarchy Spaces (`com.t4t5.spaces`) adds project-based spaces (sidebar rail on th
 
 - **Never edit files inside `~/.config/omarchy/plugins/com.t4t5.spaces/`** — plugin updates overwrite them.
 - Edit user config instead:
-  - `~/.config/omarchy/shell.json` — the `tabs`, `tabsWidget`, `sidebar`, and `sidebarWidget` keys on the `com.t4t5.spaces` entry. Applied when saved.
-  - `~/.config/omarchy/bar/modules/<id>.qml` (or any file named by `source`) — custom QML widgets for `tabsWidget` and `sidebarWidget`.
+  - `~/.config/omarchy/shell.json` — the `tabs`, `tabsWidget` and `sidebar` keys on the `com.t4t5.spaces` entry. Applied when saved.
+  - `~/.config/omarchy/bar/modules/<id>.qml` (or any file named by `source`) — custom QML widgets for `tabsWidget` and `sidebar.space.widgets`.
   - `~/.config/omarchy-spaces/config.toml` — restore and sound settings. Applied live.
   - `~/.config/hypr/bindings.lua` — Spaces keybindings. Validate with `hyprctl reload && hyprctl configerrors`.
 - Do **not** clone `omarchy.workspaces` to customize Spaces tabs: `omarchy.workspaces` only reads numeric Hyprland workspaces, whereas Spaces uses named workspaces (`s1:1`, …) and drives tabs from `space watch`. Put a widget in Spaces' `tabsWidget` instead.
@@ -48,7 +48,13 @@ A widget in `tabsWidget` is an ordinary bar widget (`bar`, `moduleName`, `settin
 
 ## Customizing the sidebar (`~/.config/omarchy/shell.json`)
 
-Just like `tabs` / `tabsWidget`, two keys customize the sidebar on the `com.t4t5.spaces` entry: `sidebar` (`{ "width": 240 }` for a wider expanded panel; default `200`) and `sidebarWidget` (same entry forms as `tabsWidget`: a registered bar widget id, `{ "id": "my-sidebar", "type": "qml" }`, or `{ "source": "~/path/MySidebar.qml" }`). Spaces keeps the Wayland exclusive-zone reservation, Hyprland slide animation, glassy/clear background, menus, icon picker, and keyboard panel, and mounts your widget inside the sidebar frame in place of `SidebarList.qml` (falling back to Spaces' own until loaded). It sets `settings`, `foreground`, `shownWidth`, `screen`, and `spaces` (`version: 1`, `spaces`, `filteredSpaces`, `space`, `tabs`, `sidebarOpen`, `expansion`, `shownWidth`, `railWidth`, `panelWidth`, `cell`, `inset`, `badgeSize`, `badgeRadius`, `headerOnBar`, `searching`, `filterText`, `selectedIndex`, `error`, `renaming`, `renameText`, `renameSelected`, `palette`, `statusColors`, `goToSpace(id)`, `newSpace([dir])`, `renameSpace([id])`, `openIconPicker(id, x, y)`, `closeSpace(id)`, `reorderSpace(id, pos)`, `openSpaceMenu(id, x, y)`, `toggleSidebar()`, `search()`, `endSearch()`, `select(index)`, `activate(index)`, `goToTab(target)`, `newTab()`, `setMeta(spaceId, key, val)`, `focusWindow(address)`). Recipes for git status, nested worktrees, and an agents section: `~/.config/omarchy/plugins/com.t4t5.spaces/docs/guide/extending.md`.
+`sidebar` sets the sidebar: `width` (expanded width, default `200`) and `space.widgets`, a list of widgets shown on a line under each space's name, side by side, while the sidebar is expanded. Each entry takes the same forms as `tabsWidget` (a plugin's widget id, also listed in `plugins`; `{ "id": "my-widget", "type": "qml" }`; or `{ "source": "~/path/MyWidget.qml" }`), the rest of it being the widget's settings:
+
+```json
+{ "id": "com.t4t5.spaces", "sidebar": { "width": 240, "space": { "widgets": [{ "id": "space-git", "type": "qml" }] } } }
+```
+
+A space widget is a QML item that gets, if it declares them (bind to them, don't mark them `required`): `space` (`{ id, label, named, icon, folder, meta, status, active, windows, leftAt, terminals }`), `settings`, `foreground`, `accent`, `statusColors` and `maxWidth` (the room on the line). It's made as wide as its `implicitWidth` or its share of the line, so elide to `width`; `visible: false` takes no room. It only shows: clicks and drags go to the row. It runs once per space per screen, so don't run commands from it: have a script keep the data in `space meta` and show `space.meta`. Example (a git branch per space): `~/.config/omarchy/plugins/com.t4t5.spaces/examples/space-git/`.
 
 ## Configuration (`~/.config/omarchy-spaces/config.toml`)
 

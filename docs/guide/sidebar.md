@@ -134,27 +134,36 @@ Item {
 
 ## Customizing the sidebar
 
-Just as `tabs` and `tabsWidget` customize the bar's tabs, `sidebar` and `sidebarWidget` on the `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` customize the sidebar:
+The `sidebar` key on the `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` sets the sidebar:
 
 ```json
 {
   "id": "com.t4t5.spaces",
-  "sidebar": { "width": 240 },
-  "sidebarWidget": { "id": "my-sidebar", "type": "qml" }
+  "sidebar": {
+    "width": 240,
+    "space": {
+      "widgets": [{ "id": "space-git", "type": "qml" }]
+    }
+  }
 }
 ```
 
-- `sidebar`: settings for the sidebar frame. Currently `{ "width": 240 }` sets the expanded width (in scaled units, default `200`).
-- `sidebarWidget`: a registered bar widget id, `{ "id": "my-sidebar", "type": "qml" }` (loads `~/.config/omarchy/bar/modules/my-sidebar.qml`), or `{ "source": "~/path/MySidebar.qml" }`. Spaces keeps the Wayland exclusive-zone reservation, Hyprland slide animation, glassy/clear background, and top-layer keyboard panel, and mounts your widget inside the sidebar frame in place of its own list. Until your widget loads (or if it fails), Spaces' own sidebar shows.
+- `width`: how wide the sidebar is when expanded, `200` by default.
+- `space.widgets`: widgets to show on a line under each space's name, side by side, in order. Each is written as in the bar's own layout, as for `tabsWidget`: a plugin's widget by its id (in `plugins` as well), `{ "id": "my-widget", "type": "qml" }` for `~/.config/omarchy/bar/modules/my-widget.qml`, or `{ "source": "~/path/to/MyWidget.qml" }`. The rest of the entry is the widget's settings.
 
-Spaces sets any of these properties your `sidebarWidget` declares (bind to them rather than marking them `required`): `settings`, `foreground`, `shownWidth` (the width currently uncovered from the left edge as the sidebar slides), `screen`, and `spaces`:
+With widgets, each row is tall enough for the two lines. They show only while the sidebar is expanded.
 
-- `version`: `1`.
-- `spaces`: all spaces in sidebar order, each `{ id, label, named, icon, folder, meta, status, active, windows, leftAt, terminals }`.
-- `filteredSpaces`: `spaces` filtered by `filterText`.
-- `space` and `tabs`: the active space and its tabs on this screen.
-- `sidebarOpen`, `expansion` (`0` collapsed to `1` expanded), `shownWidth`, `railWidth`, `panelWidth`, `cell`, `inset`, `badgeSize`, `badgeRadius`, `headerOnBar`.
-- `searching`, `filterText`, `selectedIndex`, `error`, `renaming`, `renameText`, `renameSelected`, `palette`, `statusColors`.
-- `goToSpace(id)`, `newSpace([dir])`, `renameSpace([id])`, `openIconPicker(id, x, y)`, `closeSpace(id)`, `reorderSpace(id, position)`, `openSpaceMenu(id, x, y)`, `toggleSidebar()`, `search()`, `endSearch()`, `select(index)`, `activate(index)`, `goToTab(target)`, `newTab()`, `setMeta(spaceId, key, value)` (`null` removes), `focusWindow(address)`.
+### Writing a space widget
 
-See [Extending Spaces](extending.md) for git status, worktree grouping, and agents-list recipes.
+A widget is a QML item. Spaces sets these properties once it loads, if it has them, and again as they change, so bind to them rather than marking them `required`:
+
+- `space`: the space, `{ id, label, named, icon, folder, meta, status, active, windows, leftAt, terminals }`, as in `spaces` for a tabs widget.
+- `settings`: the rest of its entry.
+- `foreground`, `accent` and `statusColors`: the sidebar's colours.
+- `maxWidth`: the room on the line.
+
+Spaces makes it as wide as its `implicitWidth`, or its share of the line when the widgets don't all fit, so elide text to its `width`. A widget with nothing to show sets `visible: false`, and takes no room. Widgets only show: a click on one goes to its space, and a drag moves the space, as anywhere else on the row.
+
+A widget's QML runs in the shell, once per space on each screen. Rather than running a command from each one, have a script keep what they show in [the space's metadata](cli.md#data-of-your-own) (`space meta`), and have the widget show `space.meta`. Scripts and agents can then read it too.
+
+[`examples/space-git`](../../examples/space-git) does this for each space's git branch: a script that keeps `meta.git` up to date, and a widget that shows it.

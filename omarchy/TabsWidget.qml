@@ -94,7 +94,6 @@ BarWidget {
   Component.onCompleted: {
     root.follow()
     root.tellHeader()
-    root.tellSettings()
     root.checkTabsSlot()
   }
   Component.onDestruction: {
@@ -122,15 +121,8 @@ BarWidget {
   function tellHeader() {
     if (root.service) root.service.setHeader(root, root.hasHeader)
   }
-  function tellSettings() {
-    if (root.service && typeof root.service.setSettings === "function") root.service.setSettings(root.settings)
-  }
   onHasHeaderChanged: root.tellHeader()
-  onSettingsChanged: root.tellSettings()
-  onServiceChanged: {
-    root.tellHeader()
-    root.tellSettings()
-  }
+  onServiceChanged: root.tellHeader()
 
   // Where the tabs start: a little past the sidebar's cut.
   readonly property real tabsX: Math.max(root.padding, root.edge - root.origin.x + Style.spacing.sm)

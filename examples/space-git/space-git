@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Keeps each space's git branch in its metadata, as `git`: `{ branch, dirty }`,
+# for the space-git widget to show. It looks every few seconds, and writes
+# only what changed.
+set -u
+
+while true; do
+  space ls --json | jq -c '.spaces[] | select(.folder) | [.id, .folder, (.meta.git // null)]' |
+    while IFS= read -r row; do
+      id=$(jq -r '.[0]' <<<"$row")
+      dir=$(jq -r '.[1]' <<<"$row")
+      old=$(jq -c '.[2]' <<<"$row")
+      new=null
+      if branch=$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null || git -C "$dir" rev-parse --short HEAD 2>/dev/null); then
+        dirty=false
+        [ -n "$(git -C "$dir" status --porcelain 2>/dev/null | head -c1)" ] && dirty=true
+        new=$(jq -cn --arg branch "$branch" --argjson dirty "$dirty" '{branch: $branch, dirty: $dirty}')
+      fi
+      [ "$new" = "$old" ] && continue
+      if [ "$new" = null ]; then
+        space meta rm -s "$id" git >/dev/null
+      else
+        space meta set -s "$id" git "$new" --json >/dev/null
+      fi
+    done
+  sleep 5
+done

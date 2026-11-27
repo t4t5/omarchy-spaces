@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Commons as Commons
 import "Spaces.mjs" as Spaces
@@ -26,6 +27,11 @@ import "Spaces.mjs" as Spaces
 // has moved a good part of a row, so a click stays a click; the rows between
 // slide aside to show where it will drop. `home` stays first, and a search's
 // list, in the search's order, can't be dragged.
+//
+// The widgets in `sidebar.space.widgets` show on a line under each space's
+// name, side by side, each handed the space (`SpaceWidget`). They only show:
+// the row takes the clicks and the drags. With any, a row is tall enough for
+// the two lines, if a cell isn't; its highlight stays a cell on the rail.
 Item {
   id: root
 
@@ -36,6 +42,13 @@ Item {
   property real shownWidth: width
   // The screen it is drawn on.
   property var screen: null
+  // The widgets under each space's name, as bar widget entries
+  // (Spaces.sidebarSlot), and the bar's widget registry, where a plugin's
+  // widget is found.
+  property var widgets: []
+  property var widgetRegistry: null
+  readonly property string home: Quickshell.env("HOME") || ""
+  readonly property var statusColors: root.controller ? root.controller.statusColors : null
 
   readonly property color accent: Commons.Color.accent
   readonly property color selectedBackground: Commons.Color.menu.selectedBackground
@@ -54,8 +67,14 @@ Item {
   // How far it has expanded, from 0 at the rail to 1.
   readonly property real expansion: Math.max(0, Math.min(1,
     (root.shownWidth - root.sidebar.railWidth) / Math.max(1, root.sidebar.panelWidth - root.sidebar.railWidth)))
-  // Every row is a cell tall, so collapsed, each icon's box is square.
-  readonly property int rowHeight: root.slot
+  // Every row is a cell tall, so collapsed, each icon's box is square; with
+  // widgets, tall enough for them under the name too.
+  readonly property bool hasWidgets: root.widgets.length > 0
+  readonly property int detailHeight: Math.ceil(detailMetrics.height)
+  readonly property int widgetGap: Style.spacing.md
+  readonly property int rowHeight: root.hasWidgets
+    ? Math.max(root.slot, Math.ceil(nameMetrics.height) + root.detailHeight + Style.spacing.xxs * 3)
+    : root.slot
   // None when the header is on the bar (TabsWidget.qml).
   readonly property int headerHeight: root.sidebar.headerOnBar ? 0 : root.slot
   readonly property int searchHeight: root.slot
@@ -85,6 +104,18 @@ Item {
 
   function reveal() {
     if (root.sidebar.shownRows.length > 0) list.positionViewAtIndex(root.sidebar.selectedIndex, ListView.Contain)
+  }
+
+  FontMetrics {
+    id: nameMetrics
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.body
+  }
+
+  FontMetrics {
+    id: detailMetrics
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.bodySmall
   }
 
   Connections {
@@ -146,12 +177,90 @@ Item {
     property bool lit: false
     property bool held: false
     width: Math.min(parent.width, root.highlightWidth)
-    height: parent.height
+    // A cell on the rail, however tall the row, growing to it as the
+    // sidebar expands.
+    height: root.slot + (parent.height - root.slot) * root.expansion
+    y: Math.round((parent.height - height) / 2)
     radius: Style.cornerRadius
     color: {
       var base = root.selectedBackground
       var alpha = Math.max(held ? base.a * root.expansion : 0, lit ? root.hoverBackground.a : 0)
       return Qt.rgba(base.r, base.g, base.b, alpha)
+    }
+  }
+
+  // A widget from `sidebar.space.widgets` on a space's row: a registered bar
+  // widget by its id, or a custom QML module, loaded and handed, if it has
+  // them, `space` (Spaces.publicSpaceRow), `settings` (the rest of its
+  // entry), `foreground`, `accent`, `statusColors` and `maxWidth` (the room
+  // on the line). Each is as wide as it would be (`implicitWidth`), or its
+  // share of the line when they don't all fit, and as tall as the line; one
+  // hidden, or no wider than nothing, takes no room.
+  component SpaceWidget: Item {
+    id: host
+    property var entry: null
+    property var space: null
+    property real maxWidth: 0
+    // Whether a module that fails to load goes unmentioned, as all but one
+    // row's do.
+    property bool quiet: false
+    readonly property string customUrl: Spaces.customModuleUrl(host.entry, root.home)
+    readonly property var registered: {
+      var registry = root.widgetRegistry
+      if (!host.entry || !host.entry.id || host.customUrl || !registry) return null
+      var revision = registry.revision
+      var widgets = registry.widgets
+      return widgets && widgets[host.entry.id] ? widgets[host.entry.id].component : null
+    }
+    readonly property var item: registryLoader.item || moduleLoader.item
+    // Read from the widget, but never bound back to `host.visible`, which
+    // `item.visible` follows, so a hidden host can't keep itself hidden.
+    readonly property real natural: host.item && host.item.visible ? host.item.implicitWidth : 0
+
+    clip: true
+
+    // Two loaders, since setting `source` clears `sourceComponent`.
+    Loader {
+      id: registryLoader
+      active: !!host.registered
+      sourceComponent: host.registered
+      width: host.width
+      height: host.height
+      onLoaded: host.inject()
+    }
+
+    Loader {
+      id: moduleLoader
+      active: !!host.entry && host.customUrl !== ""
+      source: active ? host.customUrl : ""
+      width: host.width
+      height: host.height
+      onLoaded: host.inject()
+      onStatusChanged: if (status === Loader.Error && !host.quiet) console.warn("omarchy-spaces: couldn't load", host.customUrl)
+    }
+
+    onEntryChanged: host.inject()
+    onSpaceChanged: host.give("space", host.space)
+    onMaxWidthChanged: host.give("maxWidth", host.maxWidth)
+    Connections {
+      target: root
+      function onForegroundChanged() { host.give("foreground", root.foreground) }
+      function onAccentChanged() { host.give("accent", root.accent) }
+      function onStatusColorsChanged() { host.give("statusColors", root.statusColors) }
+    }
+
+    function give(name, value) {
+      if (host.item && name in host.item) host.item[name] = value
+    }
+
+    function inject() {
+      if (!host.item || !host.entry) return
+      host.give("settings", host.entry.settings)
+      host.give("space", host.space)
+      host.give("foreground", root.foreground)
+      host.give("accent", root.accent)
+      host.give("statusColors", root.statusColors)
+      host.give("maxWidth", host.maxWidth)
     }
   }
 
@@ -249,6 +358,8 @@ Item {
           readonly property color hue: rowItem.home ? root.foreground
             : (Spaces.badgeColor(rowItem.modelData.label, root.controller ? root.controller.palette : Spaces.DEFAULT_PALETTE) || root.foreground)
           readonly property bool dragged: root.dragFrom === index
+          // The space as its widgets see it.
+          readonly property var space: root.hasWidgets ? Spaces.publicSpaceRow(rowItem.modelData) : null
           // Aside, to open the gap a dragged row would drop into.
           property real shift: Spaces.dragShift(index, root.dragFrom, root.dragTo, root.pitch)
           Behavior on shift { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
@@ -336,18 +447,18 @@ Item {
             y: badge.y - height * 0.3
           }
 
-          Column {
-            anchors.left: parent.left
-            anchors.right: parent.right
+          // Its name, centred, or above its widgets when any of them shows.
+          Item {
+            anchors.fill: parent
             anchors.leftMargin: root.textX
             anchors.rightMargin: Style.spacing.rowPaddingX
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.spacing.xxs
             opacity: root.textShown
 
             Text {
               id: nameText
               width: parent.width
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.verticalCenterOffset: details.shown ? -(root.detailHeight + Style.spacing.xxs) / 2 : 0
               textFormat: Text.PlainText
               text: rowItem.renaming ? root.controller.nameText : rowItem.modelData.label
               // The search's cursor; otherwise the highlight says which space you're in.
@@ -386,6 +497,58 @@ Item {
                   PauseAnimation { duration: 530 }
                   NumberAnimation { to: 0; duration: 0 }
                   PauseAnimation { duration: 530 }
+                }
+              }
+            }
+
+            // Its widgets, side by side, each as wide as it gets
+            // (Spaces.widgetWidths); one that takes none takes no gap either.
+            Item {
+              id: details
+              visible: root.hasWidgets
+              anchors.top: nameText.bottom
+              anchors.topMargin: Style.spacing.xxs
+              width: parent.width
+              height: root.detailHeight
+              clip: true
+              readonly property bool shown: details.widths.some(function(w) { return w > 0 })
+              // Counts the widgets coming and going, as `count` can change
+              // before `itemAt` has the new one.
+              property int revision: 0
+              readonly property var naturals: {
+                var revision = details.revision
+                var out = []
+                for (var i = 0; i < hosts.count; i++) {
+                  var host = hosts.itemAt(i)
+                  out.push(host ? host.natural : 0)
+                }
+                return out
+              }
+              readonly property var widths: Spaces.widgetWidths(details.naturals, details.width, root.widgetGap)
+
+              Repeater {
+                id: hosts
+                model: root.widgets
+                onItemAdded: details.revision++
+                onItemRemoved: details.revision++
+
+                SpaceWidget {
+                  required property var modelData
+                  required property int index
+                  entry: modelData
+                  space: rowItem.space
+                  maxWidth: details.width
+                  quiet: rowItem.index !== 0
+                  x: {
+                    var at = 0
+                    for (var i = 0; i < index; i++) {
+                      var w = details.widths[i] || 0
+                      if (w > 0) at += w + root.widgetGap
+                    }
+                    return at
+                  }
+                  width: details.widths[index] || 0
+                  height: details.height
                 }
               }
             }
