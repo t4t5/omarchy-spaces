@@ -86,7 +86,7 @@ Available helpers on `require("hypr.omarchy-spaces")`:
 
 ## CLI & IPC quick reference
 
-Commands default to the caller's own space/tab (matched live via `/proc` to its Hyprland window, falling back to `SPACE_ID`, else the focused workspace), so agents can safely act on their own space even while the user is focused elsewhere:
+Commands without an explicit space or tab default to the caller's live Hyprland window (found via `/proc`), else the focused workspace when run outside a window. Terminals launched by Spaces also set `SPACE_ID` as a fallback when there is no window (e.g. inside tmux); that identifies the space but not the tab, so tab commands require an explicit tab id there.
 
 ```bash
 space current [--json]                                                 # inspect caller space/tab/window and focused place
@@ -99,7 +99,7 @@ space note [space] <text>                                              # set or 
 space meta get [-s <space>] [key]                                      # read opaque JSON metadata
 space meta set [-s <space>] <key> <value> [--json]                     # write metadata (plain string unless --json)
 space meta rm  [-s <space>] <key>                                      # remove metadata key
-space events [--type <types>] [--no-snapshot]                          # read-only NDJSON event stream (snapshot + typed diffs)
+space events [--type <types>] [--no-snapshot]                          # NDJSON event stream served by `space watch` (snapshot + typed diffs)
 space tab new [-s <space>] [--dir <dir>] [--name <name>] [--silent] [--json]
 space tab go <n|id> | next | prev | rename [tab] <name> | send [tab] <space> | close [tab]
 space window send <space|next|prev> [--silent]

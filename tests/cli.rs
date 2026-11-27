@@ -4129,3 +4129,39 @@ fn events_come_from_the_watch_and_agree_with_it() {
             .contains("unknown event type")
     );
 }
+
+#[test]
+fn overlapping_watch_takes_over_events_when_first_ends() {
+    use std::time::Duration;
+
+    let env = Env::new();
+    let app = env.dir("app");
+    let first = Watch::start(&env);
+    let stream = Watch::run(env.command(&["events"]));
+    assert_eq!(
+        stream.next_state(Duration::from_secs(3))["type"],
+        "snapshot"
+    );
+
+    // A second watch starts while the first is still alive (as during a shell
+    // restart), so it starts without serving events.
+    let second = Watch::start(&env);
+    assert_eq!(second.next(Duration::from_secs(2)), ["home"]);
+
+    // Once the first watch exits, the second takes over on its slow tick and
+    // `space events` reconnects with a fresh snapshot.
+    drop(first);
+    let _ = env.add_terminal("s1:1", &app);
+    env.event("openwindow>>1,s1:1,kitty,zsh");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut saw_snapshot = false;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        let ev = stream.next_state(left);
+        if ev["type"] == "snapshot" {
+            saw_snapshot = true;
+            break;
+        }
+    }
+    assert!(saw_snapshot, "second watch should take over events.sock");
+    drop(second);
+}

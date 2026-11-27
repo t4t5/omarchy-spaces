@@ -13,6 +13,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
@@ -179,7 +180,15 @@ fn line(seq: u64, payload: &Payload) -> Arc<str> {
 /// What the watch serves `space events` from.
 pub struct Hub {
     path: PathBuf,
+    /// `(dev, ino)` of the socket this hub bound, so `Drop` never unlinks one
+    /// bound by a later watch.
+    inode: Option<(u64, u64)>,
     inner: Arc<Mutex<Inner>>,
+}
+
+fn file_inode(path: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    Some((meta.dev(), meta.ino()))
 }
 
 #[derive(Default)]
@@ -217,8 +226,14 @@ impl Hub {
             }
             _ => {}
         }
-        let listener = UnixListener::bind(path)
-            .with_context(|| format!("can't listen on {}", paths::tilde(path)))?;
+        let listener = match UnixListener::bind(path) {
+            Ok(listener) => listener,
+            Err(e) if e.kind() == ErrorKind::AddrInUse => return Ok(None),
+            Err(e) => {
+                return Err(e).with_context(|| format!("can't listen on {}", paths::tilde(path)));
+            }
+        };
+        let inode = file_inode(path);
         let inner = Arc::new(Mutex::new(Inner::default()));
         let shared = Arc::clone(&inner);
         std::thread::spawn(move || {
@@ -228,6 +243,7 @@ impl Hub {
         });
         Ok(Some(Hub {
             path: path.to_path_buf(),
+            inode,
             inner,
         }))
     }
@@ -271,7 +287,9 @@ impl Hub {
 
 impl Drop for Hub {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        if self.inode.is_some() && file_inode(&self.path) == self.inode {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -732,5 +750,26 @@ mod tests {
         assert!(filter.contains("status.changed"));
         assert!(!filter.contains("tab.created"));
         assert!(parse_filter(Some(vec!["not.real".into()])).is_err());
+    }
+
+    #[test]
+    fn drop_only_removes_the_socket_it_bound() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.sock");
+        let hub = Hub::serve(&path).unwrap().unwrap();
+        assert!(path.exists());
+
+        // Another watch replaces the path: dropping the old hub leaves it be.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, "new").unwrap();
+        drop(hub);
+        assert!(path.exists(), "must not unlink a different inode");
+
+        // Normal lifecycle: dropping removes the socket it bound.
+        std::fs::remove_file(&path).unwrap();
+        let hub = Hub::serve(&path).unwrap().unwrap();
+        assert!(path.exists());
+        drop(hub);
+        assert!(!path.exists());
     }
 }

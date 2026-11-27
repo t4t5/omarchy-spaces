@@ -105,11 +105,9 @@ pub fn watch(sounds: bool) -> Result<()> {
     let mut printed = String::new();
     let mut out = std::io::stdout().lock();
     // What `space events` reads. A convenience too: the watch goes on
-    // without it, and without it when another watch already serves them.
-    let hub = events::Hub::serve(&events::socket())
-        .inspect_err(|e| eprintln!("space: warning: {e:#}"))
-        .ok()
-        .flatten();
+    // without it, and without it when another watch already serves them,
+    // retrying on the slow tick so an overlapping restart takes over cleanly.
+    let mut hub = serve_hub();
 
     loop {
         let now = Instant::now();
@@ -118,6 +116,9 @@ pub fn watch(sounds: bool) -> Result<()> {
             slow_at = now + SLOW;
             if replaced() {
                 return Ok(());
+            }
+            if hub.is_none() {
+                hub = serve_hub();
             }
             // Hyprland has no event for a window resized or a split turned.
             refresh(&hypr, &mut snapshot);
@@ -332,6 +333,14 @@ fn follow(event: &str, focused: &mut Option<String>) {
         let data = data.trim().trim_start_matches("0x");
         *focused = (!data.is_empty() && data != ",").then(|| format!("0x{data}"));
     }
+}
+
+/// Opens the events socket unless another watch is already serving there.
+fn serve_hub() -> Option<events::Hub> {
+    events::Hub::serve(&events::socket())
+        .inspect_err(|e| eprintln!("space: warning: {e:#}"))
+        .ok()
+        .flatten()
 }
 
 /// The config, or `None` when it can't be read.
