@@ -44,7 +44,7 @@ To replace a slot, give it a widget entry:
 - `"header": false` gives the corner back to the sidebar, which draws its own header. A widget in `header` replaces that header, so it should call `spaces.toggleSidebar()`.
 - Until a widget loads, the slot shows Spaces' own.
 
-A slot widget is an ordinary bar widget (`bar`, `moduleName`, `settings`), plus `maxWidth` (in `tabs`: room before the clock) and `spaces`: `space`, `tabs` (`{ id, slot, label, named, status, active }`), `sidebarOpen`, `renaming`, `renameText`, `goToTab(idOrNumber)`, `newTab()`, `renameTab(id)`, `reorderTab(id, position)`, `openTabMenu(id, x, y)` (window coordinates from `mapToItem(null, x, y)`), `toggleSidebar()`. Set `textFormat: Text.PlainText` on any `Text` showing tab names. A new `.qml` file in a folder the shell has already loaded from may need `omarchy restart shell` before it loads.
+A slot widget is an ordinary bar widget (`bar`, `moduleName`, `settings`), plus `maxWidth` (in `tabs`: room before the clock) and `spaces`: `space` (`{ id, label, named, icon, status }`), `tabs` (`{ id, slot, label, named, status, active }`), `sidebarOpen`, `renaming`, `renameText`, `goToTab(idOrNumber)`, `newTab()`, `renameTab(id)`, `reorderTab(id, position)`, `openTabMenu(id, x, y)` (window coordinates from `mapToItem(null, x, y)`), `toggleSidebar()`. Set `textFormat: Text.PlainText` on any `Text` showing tab or space names. A new `.qml` file in a folder the shell has already loaded from may need `omarchy restart shell` before it loads.
 
 ## Configuration (`~/.config/omarchy-spaces/config.toml`)
 

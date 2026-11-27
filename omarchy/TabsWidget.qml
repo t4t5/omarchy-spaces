@@ -24,7 +24,8 @@ BarWidget {
   moduleName: "com.t4t5.spaces"
 
   readonly property string home: Quickshell.env("HOME") || ""
-  readonly property var live: Spaces.monitorNamed(root.service && root.service.watch ? root.service.watch.now : Spaces.EMPTY, root.screenName)
+  readonly property var watchState: root.service && root.service.watch ? root.service.watch.now : Spaces.EMPTY
+  readonly property var live: Spaces.monitorNamed(root.watchState, root.screenName)
   readonly property color foreground: root.bar ? root.bar.barForeground : Commons.Color.bar.text
   readonly property color accent: Commons.Color.accent
   readonly property color hover: Commons.Color.menu.selectedBackground
@@ -164,9 +165,10 @@ BarWidget {
   // working.
   QtObject {
     id: spacesApi
-    // The space shown on this bar's screen, and its tabs:
+    // The space shown on this bar's screen:
+    // `{ id, label, named, icon, status }` (Spaces.publicSpace), and its tabs:
     // `{ id, slot, label, named, status, active }` (Spaces.publicTab).
-    readonly property string space: root.live.space
+    readonly property var space: Spaces.publicSpace(root.watchState, root.live.space)
     readonly property var tabs: root.live.tabs.map(Spaces.publicTab)
     readonly property bool sidebarOpen: !!root.sidebar && root.sidebar.opened
     // The tab being renamed, by its id, and the name typed so far.

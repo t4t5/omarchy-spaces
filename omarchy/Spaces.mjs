@@ -635,6 +635,22 @@ export function numeralFor(slot, numerals) {
   return String(slot)
 }
 
+// The space shown on a monitor as a widget in a slot sees it, apart from
+// `space watch`'s own form of it.
+export function publicSpace(state, id) {
+  const spaceId = String(id || "")
+  const row = spaceId && state && Array.isArray(state.spaces)
+    ? state.spaces.find((s) => s && s.id === spaceId)
+    : null
+  return {
+    id: spaceId,
+    label: row && row.label ? String(row.label) : spaceId,
+    named: !!row && row.named === true,
+    icon: row && typeof row.icon === "string" ? row.icon : "",
+    status: row ? status(row.status) : "",
+  }
+}
+
 // A tab as a widget in the `tabs` slot sees it, apart from `space watch`'s
 // own form of it.
 export function publicTab(tab) {

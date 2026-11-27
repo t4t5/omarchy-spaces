@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, firstOnBar, parseBarEntry, slotEntry, expandPath, customModuleUrl, headerOnBar, numeralFor, publicTab, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, firstOnBar, parseBarEntry, slotEntry, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicTab, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -300,7 +300,16 @@ test("numbers tabs with custom numerals", () => {
   assert.equal(numeralFor(0, kanji), "")
 })
 
-test("hands widgets in the tabs slot a tab of their own", () => {
+test("hands widgets in a slot a space and tabs of their own", () => {
+  const state = parseState(line([
+    { id: "s1", label: "Tax 2026", named: true, icon: "🚀", status: "waiting", windows: 3, active: true, left_at: 1000 },
+    { id: "s2", status: "bogus" },
+  ]))
+  assert.deepEqual(publicSpace(state, "s1"), { id: "s1", label: "Tax 2026", named: true, icon: "🚀", status: "waiting" })
+  assert.deepEqual(publicSpace(state, "s2"), { id: "s2", label: "s2", named: false, icon: "", status: "" })
+  assert.deepEqual(publicSpace(EMPTY, "s9"), { id: "s9", label: "s9", named: false, icon: "", status: "" }, "before it's in spaces")
+  assert.deepEqual(publicSpace(EMPTY, ""), { id: "", label: "", named: false, icon: "", status: "" }, "before space watch")
+
   const tab = publicTab({ id: "s1:2", slot: 2, label: "claude", named: false, status: "working", windows: 1, active: true, pid: 99 })
   assert.deepEqual(tab, { id: "s1:2", slot: 2, label: "claude", named: false, status: "working", active: true })
   assert.deepEqual(publicTab({ id: "s1:1", status: "bogus" }), { id: "s1:1", slot: 0, label: "", named: false, status: "", active: false })

@@ -81,7 +81,7 @@ A widget for a slot is an ordinary bar widget: Spaces gives it `bar`, `moduleNam
 
 `spaces` has:
 
-- `space`: the id of the space shown on this screen.
+- `space`: the space shown on this screen, `{ id, label, named, icon, status }`. `icon` is a glyph, emoji, image path, or `""`; `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `tabs`: its tabs, each `{ id, slot, label, named, status, active }`. `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `sidebarOpen`: whether the sidebar is expanded.
 - `renaming` and `renameText`: the id of the tab being renamed, and the name typed so far. Spaces takes the keys: Enter keeps the name, Escape drops it.
