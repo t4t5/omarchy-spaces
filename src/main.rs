@@ -252,6 +252,12 @@ enum WindowCmd {
         /// Stay where you are instead of following the window.
         #[arg(long)]
         silent: bool,
+        /// Send the window at this address (as `hyprctl clients` shows it)
+        /// rather than the focused one, which can change between a picker
+        /// opening and the command running. It does nothing if the window
+        /// is gone.
+        #[arg(long, value_parser = window_address)]
+        window: Option<String>,
     },
     /// Move the focused window to tab N of the active space, and go with it.
     Tab {
@@ -260,7 +266,22 @@ enum WindowCmd {
         /// Stay where you are instead of following the window.
         #[arg(long)]
         silent: bool,
+        /// Move the window at this address rather than the focused one. It
+        /// does nothing if the window is gone.
+        #[arg(long, value_parser = window_address)]
+        window: Option<String>,
     },
+}
+
+/// A window's address, with or without its `0x`.
+fn window_address(raw: &str) -> Result<String, String> {
+    let digits = raw.strip_prefix("0x").unwrap_or(raw);
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "'{raw}' isn't a window address, like 0x5581a2c3d4e0"
+        ));
+    }
+    Ok(format!("0x{}", digits.to_ascii_lowercase()))
 }
 
 fn slot(raw: &str) -> Result<u8, String> {
@@ -379,8 +400,14 @@ fn main() -> ExitCode {
         Cmd::Emptied { workspace } => commands::emptied(&workspace),
         Cmd::Renumber => commands::renumber(),
         Cmd::Tab(command) => run_tab(command),
-        Cmd::Window(WindowCmd::Send { space, silent }) => commands::send_window(space, silent),
-        Cmd::Window(WindowCmd::Tab { n, silent }) => commands::window_to_tab(n, silent),
+        Cmd::Window(WindowCmd::Send {
+            space,
+            silent,
+            window,
+        }) => commands::send_window(space, silent, window.as_deref()),
+        Cmd::Window(WindowCmd::Tab { n, silent, window }) => {
+            commands::window_to_tab(n, silent, window.as_deref())
+        }
     };
 
     match result {

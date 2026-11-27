@@ -329,6 +329,16 @@ pub fn move_window(selector: &str, follow: bool) -> String {
     )
 }
 
+/// Move the window at `address` to a workspace by selector, whether or not it
+/// has focus, and go along with it when `follow`.
+pub fn move_window_of(address: &str, selector: &str, follow: bool) -> String {
+    format!(
+        "hl.dsp.window.move({{ workspace = {}, follow = {follow}, window = {} }})",
+        lua_string(selector),
+        lua_string(&format!("address:{address}"))
+    )
+}
+
 /// Focus a monitor, by its name.
 pub fn focus_monitor(monitor: &str) -> String {
     format!("hl.dsp.focus({{ monitor = {} }})", lua_string(monitor))

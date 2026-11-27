@@ -442,7 +442,10 @@ impl Hyprland {
                 return "error: no such window".into();
             };
             self.ensure(&target);
-            self.windows[index] = target;
+            self.windows[index] = target.clone();
+            if expression.contains("follow = true") {
+                self.active = target;
+            }
         } else if expression.starts_with("hl.dsp.window.set_prop(") {
             let address = field(expression, "window").unwrap();
             let address = address.strip_prefix("address:0x").unwrap();
@@ -635,6 +638,14 @@ impl Env {
             "0x{:x}",
             self.hypr.lock().unwrap().addresses.last().unwrap()
         )
+    }
+
+    /// The workspace the window at `address` is on.
+    fn window_place(&self, address: &str) -> String {
+        let hypr = self.hypr.lock().unwrap();
+        let address = u32::from_str_radix(address.trim_start_matches("0x"), 16).unwrap();
+        let i = hypr.addresses.iter().position(|a| *a == address).unwrap();
+        hypr.windows[i].clone()
     }
 
     fn close_window(&self, address: &str) {
@@ -1059,6 +1070,150 @@ fn send_and_window_to_tab_find_renamed_tabs_by_their_names() {
     env.ok(&["window", "tab", "3", "--silent"]);
     assert_eq!(on(&env, "s1:2"), before, "not onto the tab named s1:2");
     assert_eq!(env.windows().iter().filter(|w| *w == "s1:4").count(), 1);
+}
+
+#[test]
+fn sending_a_named_window_moves_it_whatever_has_focus() {
+    // The picker names the window it opened on: focus can move before the
+    // command runs (to the window under the pointer, as the picker closes).
+    // The newest window on the active workspace is the focused one.
+    for silent in [false, true] {
+        let env = Env::new();
+        env.add_terminal("s2:1", &env.dir("mail"));
+        let named = env.add_terminal("s1:1", &env.dir("ren"));
+        let focused = env.add_terminal("s1:1", &env.dir("ren"));
+        env.ok(&["go", "ren"]);
+        env.dispatched();
+
+        let mut args = vec!["window", "send", "mail", "--window", &named];
+        if silent {
+            args.push("--silent");
+        }
+        env.ok(&args);
+        assert_eq!(
+            env.dispatched(),
+            [format!(
+                r#"hl.dsp.window.move({{ workspace = "name:s2:1", follow = {}, window = "address:{named}" }})"#,
+                !silent
+            )],
+            "silent: {silent}"
+        );
+        assert_eq!(env.window_place(&named), "s2:1", "silent: {silent}");
+        assert_eq!(env.window_place(&focused), "s1:1", "silent: {silent}");
+        assert_eq!(env.active(), if silent { "s1:1" } else { "s2:1" });
+    }
+}
+
+#[test]
+fn sending_a_named_window_remembers_where_you_left_its_space() {
+    // Where you left is the window's own tab, not the one you are on.
+    let env = Env::new();
+    env.add_terminal("s2:1", &env.dir("mail"));
+    let named = env.add_terminal("s1:2", &env.dir("ren"));
+    env.add_terminal("s1:2", &env.dir("ren"));
+    env.add_window("s1:1");
+    env.ok(&["go", "ren"]);
+    env.set_active("s1:1");
+
+    env.ok(&["window", "send", "mail", "--window", &named]);
+    env.ok(&["go", "ren"]);
+    assert_eq!(
+        env.active(),
+        "s1:2",
+        "ren remembers the tab the window left"
+    );
+}
+
+#[test]
+fn sending_a_named_window_from_home_and_to_home() {
+    let env = Env::new();
+    let named = env.add_window("1");
+    env.add_window("1");
+    env.add_terminal("s1:1", &env.dir("ren"));
+    env.set_active("1");
+    env.dispatched();
+
+    // From home, the window isn't the focused one.
+    env.ok(&["window", "send", "ren", "--window", &named]);
+    assert_eq!(env.window_place(&named), "s1:1");
+    assert_eq!(env.active(), "s1:1");
+
+    // To home, by its number rather than for the focused window.
+    env.ok(&["go", "ren"]);
+    let other = env.add_window("s1:1");
+    env.dispatched();
+    env.ok(&["window", "send", "home", "--window", &named, "--silent"]);
+    assert_eq!(
+        env.dispatched(),
+        [format!(
+            r#"hl.dsp.window.move({{ workspace = "1", follow = false, window = "address:{named}" }})"#
+        )]
+    );
+    assert_eq!(env.window_place(&named), "1");
+    assert_eq!(env.window_place(&other), "s1:1");
+    assert_eq!(env.active(), "s1:1");
+}
+
+#[test]
+fn moving_a_named_window_to_a_tab_in_home_on_the_second_monitor() {
+    // Tab 3 of the second monitor's plain workspaces is workspace 13.
+    let env = Env::new();
+    env.plug_in("12");
+    let named = env.add_window("12");
+    env.add_window("12");
+    env.set_active("12");
+    env.dispatched();
+
+    env.ok(&["window", "tab", "3", "--window", &named, "--silent"]);
+    assert_eq!(env.window_place(&named), "13");
+}
+
+#[test]
+fn a_named_window_in_the_scratchpad_goes_from_where_you_are() {
+    let env = Env::new();
+    env.add_terminal("s1:1", &env.dir("ren"));
+    env.add_terminal("s2:1", &env.dir("mail"));
+    let hidden = env.add_window("special:scratch");
+    env.ok(&["go", "ren"]);
+
+    env.ok(&["window", "send", "mail", "--window", &hidden, "--silent"]);
+    assert_eq!(env.window_place(&hidden), "s2:1");
+
+    env.ok(&["window", "send", "home", "--window", &hidden, "--silent"]);
+    assert_eq!(env.window_place(&hidden), "1");
+    env.move_window(&hidden, "special:scratch");
+    env.ok(&["window", "tab", "2", "--window", &hidden, "--silent"]);
+    assert_eq!(env.window_place(&hidden), "s1:2");
+}
+
+#[test]
+fn sending_a_window_that_is_gone_does_nothing() {
+    let env = Env::new();
+    env.add_terminal("s2:1", &env.dir("mail"));
+    let gone = env.add_terminal("s1:1", &env.dir("ren"));
+    env.add_terminal("s1:1", &env.dir("ren"));
+    env.ok(&["go", "ren"]);
+    env.close_window(&gone);
+    env.dispatched();
+
+    env.ok(&["window", "send", "mail", "--window", &gone]);
+    env.ok(&["window", "tab", "2", "--window", &gone]);
+    assert!(env.dispatched().iter().all(|d| !d.contains("window.move")));
+    assert_eq!(env.active(), "s1:1");
+    env.fails(&["window", "send", "mail", "--window", "not-an-address"]);
+}
+
+#[test]
+fn moving_a_named_window_to_a_tab() {
+    let env = Env::new();
+    let named = env.add_terminal("s1:1", &env.dir("ren"));
+    let focused = env.add_terminal("s1:1", &env.dir("ren"));
+    env.ok(&["go", "ren"]);
+
+    env.ok(&["window", "tab", "2", "--window", &named, "--silent"]);
+    assert_eq!(env.window_place(&named), "s1:2");
+    assert_eq!(env.window_place(&focused), "s1:1");
+    assert_eq!(env.active(), "s1:1");
 }
 
 #[test]

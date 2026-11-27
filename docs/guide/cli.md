@@ -40,9 +40,11 @@ A tab left out is the one the command is run from.
 ## Windows
 
 ```sh
-space window send <space|next|prev> [--silent]  # the window to another space, on the tab you left it on
-space window tab <n> [--silent]                 # the window to tab n of the active space on this monitor
+space window send <space|next|prev> [--silent] [--window <address>]  # the window to another space, on the tab you left it on
+space window tab <n> [--silent] [--window <address>]                 # the window to tab n of its space on this monitor
 ```
+
+These take the focused window. `--window` names another, by the address `hyprctl clients` shows, so a script can say which window it means when focus may move before the command runs. The window's own space and tab are then where it moves from and what "the tab you left it on" means; `next` and `prev` still count from the space you are on. If the window is gone, nothing happens.
 
 ## Data of your own
 

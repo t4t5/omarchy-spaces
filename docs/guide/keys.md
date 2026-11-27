@@ -55,7 +55,7 @@ Bind these actions rather than `space` commands: they stay the same if the comma
 |---|---|
 | `spaces.terminal()` | Terminal in the folder you are in; on an empty tab, the space's folder. If that fails, Omarchy's own |
 | `spaces.move_window_to_tab(n)` | Move the window to tab N, or past the last tab, to a new one after it; with `false` after it, staying where you are |
-| `spaces.send_window()` | Move the focused window to another space: type to filter, press `1`–`0` for instant pick, Enter to send (Shift+Enter silently), Escape to stop. Pass `(nil, false)` to send silently by default |
+| `spaces.send_window()` | Move the focused window to another space (the one that had focus when the picker opened, even if focus moves to another meanwhile): type to filter, press `1`–`0` for instant pick, Enter to send (Shift+Enter silently), Escape to stop. Pass `(nil, false)` to send silently by default |
 | `spaces.send_window("next")` / `spaces.send_window("prev")` | Send the window to the next / previous space, or to one by name, and go with it; with `false` after it, staying where you are |
 
 In `home`, `go_to_tab` and `move_window_to_tab` behave exactly as Omarchy's workspace keys, so a new tab there opens empty.

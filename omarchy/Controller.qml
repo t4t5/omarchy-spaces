@@ -63,6 +63,9 @@ Item {
   property bool movingTab: false
   property bool movingWindow: false
   property bool moveWindowSilent: false
+  // The window the picker was opened on, by address: focus can move while it
+  // is open, to the window under the pointer when it closes.
+  property string moveWindowAddress: ""
   property bool moveCentered: false
   readonly property var moveTargets: root.rows.filter(function(row) { return row.id !== root.here.space })
   property real menuX: 0
@@ -134,6 +137,7 @@ Item {
     root.movingTab = false
     root.movingWindow = false
     root.moveWindowSilent = false
+    root.moveWindowAddress = ""
     root.moveCentered = false
   }
 
@@ -169,24 +173,35 @@ Item {
   }
 
   // Picks a space to send the focused window to, from the keyboard; again,
-  // it stops.
+  // it stops. With no window focused there is nothing to send, so it doesn't
+  // open.
   function sendWindow(silent) {
     if (root.movingWindow) {
       root.closeMenu()
       return
     }
+    // `activeToplevel` keeps the last window that had focus when focus goes
+    // to an empty workspace, so it counts only while it is on the focused one.
+    var toplevel = Hyprland.activeToplevel
+    var focused = Hyprland.focusedWorkspace
+    var onFocused = !!toplevel && !!toplevel.workspace && !!focused && toplevel.workspace.id === focused.id
+    var address = onFocused ? String(toplevel.address || "").trim() : ""
+    if (!address) return
     root.placeMenu(0, 0, root.focusedScreen())
+    root.moveWindowAddress = address.indexOf("0x") === 0 ? address : "0x" + address
     root.moveCentered = true
     root.movingWindow = true
     root.moveWindowSilent = silent === true
   }
 
-  // Sends the focused window to a space, following unless `silent`.
+  // Sends the window the picker opened on to a space, following unless
+  // `silent`.
   function sendWindowTo(id, silent) {
     var quiet = silent === true || root.moveWindowSilent
+    var address = root.moveWindowAddress
     root.closeMenu()
-    if (!id) return
-    var args = ["space", "window", "send", id]
+    if (!id || !address) return
+    var args = ["space", "window", "send", id, "--window", address]
     if (quiet) args.push("--silent")
     root.run(args)
   }
