@@ -30,13 +30,11 @@ use crate::state::Last;
 /// two frames, so nothing else sees it.
 const ASIDE: &str = "name:omarchy-spaces-moving";
 
-/// Where `space tab go`, `new`, `next` and `prev` go. A space's workspaces
-/// are its tabs.
+/// Where `space tab go`, `next` and `prev` go. A space's workspaces are its
+/// tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Slot(u8),
-    /// A new tab, after the last one.
-    New,
     Next,
     Prev,
 }
@@ -222,9 +220,7 @@ pub fn new_tab_cmd(opts: NewTabOptions) -> Result<()> {
     Ok(())
 }
 
-/// `space tab go <n>` and `space tab new`, `next` and `prev`: a tab of the
-/// active space. A space's new tab opens with a terminal in the space's folder, as a new space does,
-/// so it never shows empty; `home`'s is Omarchy's next workspace, empty.
+/// `space tab go <n>`, `next` and `prev`: a tab of the active space.
 pub fn go_to_tab(target: Target) -> Result<()> {
     let hypr = Hypr::from_env()?;
     let _turn = matches!(target, Target::Next | Target::Prev)
@@ -233,14 +229,10 @@ pub fn go_to_tab(target: Target) -> Result<()> {
     let active = hypr.active_workspace()?;
     let here = name::locate(active.id, &active.name);
     let space = here.space();
-    if target == Target::New && space != HOME {
-        return new_tab(&hypr, &active, &here);
-    }
     let workspaces = hypr.workspaces()?;
     let strip = Strip::new(&workspaces, space, &active, &Blocks::load());
     let key = match target {
         Target::Slot(slot) => fresh_key(&workspaces, space, strip.reach(slot)),
-        Target::New => new_tab_in(&strip, [])?,
         Target::Next | Target::Prev => {
             match step_tab(target == Target::Next, &strip.keys(), here.key()) {
                 Some(key) => key,
@@ -274,40 +266,6 @@ pub fn go_to_named_tab(tab: String) -> Result<()> {
     }
     hypr.dispatch(&hypr::focus_workspace(&live_selector(&hypr, &id, key)))?;
     remember(&id, key);
-    Ok(())
-}
-
-/// A new tab in the active space, reserved until its terminal is up: the one
-/// you are on, if nothing is open there, as on a monitor the space hasn't been
-/// used on.
-fn new_tab(hypr: &Hypr, active: &hypr::Workspace, here: &Location) -> Result<()> {
-    let space = here.space();
-    let dir = live::space_folder(hypr, space)?;
-    let blocks = Blocks::load();
-    let (_, key) = reserve::reserve(&paths::reserved_dir(), |reserved| {
-        let workspaces = hypr.workspaces()?;
-        let opening: Vec<u8> = reserved
-            .iter()
-            .filter(|(of, _)| of == space)
-            .map(|(_, key)| *key)
-            .collect();
-        let empty = workspaces
-            .iter()
-            .any(|ws| ws.name == active.name && ws.windows == 0);
-        if let Some(key) = here.key()
-            && empty
-            && !opening.contains(&key)
-        {
-            return Ok((space.to_string(), key));
-        }
-        let strip = Strip::new(&workspaces, space, active, &blocks);
-        let taken = open_in(&workspaces, space).into_iter().chain(opening);
-        Ok((space.to_string(), new_tab_in(&strip, taken)?))
-    })?;
-    let workspace = name::workspace_name(space, key);
-    let env = [(context::SPACE_ID_ENV, space)];
-    open_terminal_then(hypr, &dir, &workspace, &env, || focus(hypr, space, key))?;
-    remember(space, key);
     Ok(())
 }
 

@@ -45,6 +45,6 @@ A tab is found by its name, as the bar shows it, never by a `name:` selector mad
 
 ## State
 
-`~/.local/state/omarchy-spaces/spaces.json` holds what Hyprland can't about each live space: the name and icon you gave it, the terminal it follows and that terminal's last folder. The saved sessions are beside it (see [Restoring your spaces](../guide/restore.md#whats-saved)); `space watch` saves them as they change, and after a restart the plugin runs `space restore`.
+`~/.local/state/omarchy-spaces/spaces.json` holds what Hyprland can't about each live space: the name, icon, note and metadata you gave it, the terminal it follows and that terminal's last folder. The saved sessions are beside it (see [Restoring your spaces](../guide/restore.md#whats-saved)); `space watch` saves them as they change, and after a restart the plugin runs `space restore`.
 
 All of these say their `version`. One that can't be read, or that a newer `space` made, is put aside as `<name>.broken-<time>` beside it rather than saved over.
