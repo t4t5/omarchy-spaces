@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, slotEntry, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicTab, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, tabsSlot, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicTab, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -254,25 +254,34 @@ test("reads whether the sidebar's header is on the bar", () => {
   assert.equal(headerOnBar(null, id), false)
 })
 
-test("reads the tabs slot as a bar widget entry", () => {
-  assert.deepEqual(parseBarEntry("spaces.tabs"), { id: "spaces.tabs", settings: {} })
-  assert.deepEqual(parseBarEntry({ id: "spaces.tabs", labels: false }), { id: "spaces.tabs", settings: { labels: false } })
+test("reads a bar widget entry", () => {
+  assert.deepEqual(parseBarEntry("io.github.someone.tabs"), { id: "io.github.someone.tabs", settings: {} })
+  assert.deepEqual(parseBarEntry({ id: "io.github.someone.tabs", compact: true }), { id: "io.github.someone.tabs", settings: { compact: true } })
   assert.equal(parseBarEntry(""), null)
   assert.equal(parseBarEntry({}), null)
   assert.deepEqual(parseBarEntry({ source: "~/Tabs.qml" }), { id: "", settings: { source: "~/Tabs.qml" } }, "source alone names a custom module")
   assert.deepEqual(parseBarEntry({ type: "qml" }), { id: "", settings: { type: "qml" } }, "type alone names an incomplete module entry")
-  assert.equal(parseBarEntry(["spaces.tabs"]), null)
+  assert.equal(parseBarEntry(["io.github.someone.tabs"]), null)
+})
 
-  assert.deepEqual(slotEntry(null, "tabs", "spaces.tabs"), { id: "spaces.tabs", settings: {} })
-  assert.deepEqual(slotEntry({}, "tabs", "spaces.tabs"), { id: "spaces.tabs", settings: {} })
-  assert.equal(slotEntry({ tabs: false }, "tabs", "spaces.tabs"), null)
-  assert.equal(slotEntry({ tabs: null }, "tabs", "spaces.tabs"), null)
-  assert.deepEqual(slotEntry({ tabs: 42 }, "tabs", "spaces.tabs"), { id: "spaces.tabs", settings: {} }, "nothing named")
-  assert.deepEqual(slotEntry({ tabs: "io.github.someone.tabs" }, "tabs", "spaces.tabs"), { id: "io.github.someone.tabs", settings: {} })
-  assert.deepEqual(slotEntry({ tabs: { id: "spaces.tabs", numerals: false, newTab: false } }, "tabs", "spaces.tabs"),
-    { id: "spaces.tabs", settings: { numerals: false, newTab: false } })
-  assert.deepEqual(slotEntry({ tabs: { numerals: ["一"] } }, "tabs", "spaces.tabs"),
-    { id: "spaces.tabs", settings: { numerals: ["一"] } }, "Spaces' own, with settings")
+test("reads the tabs slot from its two keys", () => {
+  const own = { shown: true, settings: {}, widget: null, misplaced: false }
+  assert.deepEqual(tabsSlot(null), own)
+  assert.deepEqual(tabsSlot({}), own)
+  assert.deepEqual(tabsSlot({ tabs: null }), own, "null is unset")
+  assert.deepEqual(tabsSlot({ tabs: false }), { ...own, shown: false })
+  assert.deepEqual(tabsSlot({ tabs: false, tabsWidget: "io.github.someone.tabs" }), { ...own, shown: false }, "false hides any widget too")
+  assert.deepEqual(tabsSlot({ tabs: { numerals: ["一"], labels: false } }), { ...own, settings: { numerals: ["一"], labels: false } })
+  assert.deepEqual(tabsSlot({ tabsWidget: "io.github.someone.tabs" }), { ...own, widget: { id: "io.github.someone.tabs", settings: {} } })
+  assert.deepEqual(tabsSlot({ tabsWidget: { source: "~/Tabs.qml", compact: true } }),
+    { ...own, widget: { id: "", settings: { source: "~/Tabs.qml", compact: true } } })
+  assert.deepEqual(tabsSlot({ tabs: { numerals: false }, tabsWidget: "x" }),
+    { ...own, settings: { numerals: false }, widget: { id: "x", settings: {} } }, "each key keeps to its own")
+
+  assert.equal(tabsSlot({ tabs: "io.github.someone.tabs" }).misplaced, true, "a widget id in tabs")
+  assert.equal(tabsSlot({ tabs: { id: "io.github.someone.tabs" } }).misplaced, true)
+  assert.equal(tabsSlot({ tabs: { source: "~/Tabs.qml" } }).misplaced, true)
+  assert.deepEqual(tabsSlot({ tabs: { id: "x", labels: false } }).widget, null, "never read as a widget")
 })
 
 test("finds a custom QML module as the bar does", () => {

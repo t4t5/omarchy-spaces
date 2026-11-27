@@ -16,10 +16,10 @@ import "Spaces.mjs" as Spaces
 // corner, it draws its `tabs` slot, sliding with the windows as the sidebar
 // opens.
 //
-// The `tabs` slot holds a bar widget entry (Spaces.slotEntry): Spaces' own
-// (`spaces.tabs`) by default, or any other bar widget or custom QML module,
-// which gets the bar, its settings, `maxWidth`, and `spaces` (below), as one
-// on the bar does. `false` leaves it empty.
+// The `tabs` slot (Spaces.tabsSlot) shows Spaces' own tabs, set by the `tabs`
+// key (`false` leaves the slot empty), or the bar widget or custom QML module
+// in `tabsWidget`, which gets the bar, its settings, `maxWidth`, and `spaces`
+// (below), as one on the bar does.
 BarWidget {
   id: root
   moduleName: "com.t4t5.spaces"
@@ -36,9 +36,13 @@ BarWidget {
   // The space's corner rounds as Hyprland rounds windows.
   readonly property real cornerRadius: Style.cornerRadius
 
-  readonly property var tabsEntry: Spaces.slotEntry(root.settings, "tabs", "spaces.tabs")
-  // The `spaces.tabs` entry's settings.
-  readonly property var tabsSettings: root.tabsEntry && root.tabsEntry.id === "spaces.tabs" ? root.tabsEntry.settings : ({})
+  readonly property var tabsSlot: Spaces.tabsSlot(root.settings)
+  // Spaces' own tabs' settings, from `tabs`.
+  readonly property var tabsSettings: root.tabsSlot.settings
+  function checkTabsSlot() {
+    if (root.tabsSlot.misplaced) console.warn("omarchy-spaces: `tabs` holds Spaces' own tabs' settings; put another widget in `tabsWidget`")
+  }
+  onTabsSlotChanged: root.checkTabsSlot()
 
   implicitWidth: root.vertical ? root.barSize : tabsHost.x + tabsHost.implicitWidth + root.padding
   implicitHeight: root.vertical ? tabsHost.implicitHeight : root.barSize
@@ -90,6 +94,7 @@ BarWidget {
   Component.onCompleted: {
     root.follow()
     root.tellHeader()
+    root.checkTabsSlot()
   }
   Component.onDestruction: {
     root.unfollow()
@@ -149,9 +154,11 @@ BarWidget {
   }
 
   // What a widget in the `tabs` slot gets as `spaces`, if it has the property.
-  // Only ever added to, so that a widget written for it keeps working.
+  // Fields are added without changing `version`; changing or removing one
+  // bumps it, so a widget can tell what it's been given.
   QtObject {
     id: spacesApi
+    readonly property int version: 1
     // The space shown on this bar's screen:
     // `{ id, label, named, icon, status }` (Spaces.publicSpace), and its tabs:
     // `{ id, slot, label, named, status, active }` (Spaces.publicTab).
@@ -253,7 +260,7 @@ BarWidget {
   // The `tabs` slot: Spaces' own tabs, or another widget.
   Item {
     id: tabsHost
-    readonly property bool own: !!root.tabsEntry && (root.tabsEntry.id === "spaces.tabs" || !tabsWidget.found)
+    readonly property bool own: root.tabsSlot.shown && (!root.tabsSlot.widget || !tabsWidget.found)
     x: root.vertical ? 0 : root.tabsX
     implicitWidth: tabsHost.own ? ownTabs.implicitWidth : tabsWidget.implicitWidth
     implicitHeight: tabsHost.own ? ownTabs.implicitHeight : tabsWidget.implicitHeight
@@ -292,7 +299,7 @@ BarWidget {
 
     HostedWidget {
       id: tabsWidget
-      entry: root.tabsEntry && root.tabsEntry.id !== "spaces.tabs" ? root.tabsEntry : null
+      entry: root.tabsSlot.widget
       maxWidth: root.maxWidth
     }
   }

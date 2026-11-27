@@ -5,10 +5,10 @@ import Quickshell
 import qs.Commons
 import "Spaces.mjs" as Spaces
 
-// The active space's tabs (`spaces.tabs`, the `tabs` slot's own): clicks
-// switch tabs, double-clicks rename them inline, right-clicks open the tab
-// menu, dragging reorders them along a horizontal bar, and the `+` opens a new
-// one. Tabs share the room left before the clock fairly.
+// The active space's tabs, Spaces' own in the `tabs` slot: clicks switch
+// tabs, double-clicks rename them inline, right-clicks open the tab menu,
+// dragging reorders them along a horizontal bar, and the `+` opens a new one.
+// Tabs share the room left before the clock fairly.
 Item {
   id: root
 
@@ -26,7 +26,7 @@ Item {
   property string fontFamily: Style.font.family
   property int fontSize: Style.font.body
   property real cornerRadius: Style.cornerRadius
-  // From the `spaces.tabs` entry's settings.
+  // From the `tabs` settings.
   property var numerals: null
   property bool labels: true
   property bool newTab: true

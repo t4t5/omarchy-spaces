@@ -545,10 +545,12 @@ export function recessAlpha(r, g, b) {
 // ---------------------------------------------------------------- slots
 //
 // The `com.t4t5.spaces` entry on the bar has a `tabs` slot (past the sidebar's
-// edge), holding a bar widget entry as the bar's own layout does: Spaces' own
-// (`spaces.tabs`) by default, any registered bar widget by its id, or a custom
-// QML module (`{ id, type: "qml" }` or `{ source }`), with the rest of the
-// entry as its settings. `false` leaves it empty.
+// edge), set by two keys kept apart, so neither is guessed from the other's
+// shape: `tabs`, the settings of Spaces' own tabs (or `false` for none), and
+// `tabsWidget`, a bar widget entry to show in their place, as the bar's own
+// layout takes one: a registered bar widget by its id, or a custom QML module
+// (`{ id, type: "qml" }` or `{ source }`), with the rest of the entry as its
+// settings.
 
 // Whether the sidebar's header, its toggle and title, sits on the bar: when
 // the widget `id` comes first in the bar's left section, on a bar along the
@@ -577,20 +579,20 @@ export function parseBarEntry(entry) {
   return { id, settings }
 }
 
-// The entry in slot `key` of Spaces' `settings`: `fallback` when it isn't set
-// or names nothing, with the settings of an object with neither an id, a
-// `source`, nor a `type` (as `{ numerals: [...] }`), so those are never
-// Spaces' own settings; null when it's `false`.
-export function slotEntry(settings, key, fallback) {
-  const value = settings ? settings[key] : undefined
-  if (value === false || value === null) return null
-  const entry = parseBarEntry(value)
-  if (entry) return entry
-  const own = parseBarEntry(fallback)
-  if (own && value && typeof value === "object" && !Array.isArray(value)) {
-    for (const k of Object.keys(value)) if (k !== "id") own.settings[k] = value[k]
+// The `tabs` slot as Spaces' `settings` set it: `{ shown, settings, widget,
+// misplaced }`. `settings` are Spaces' own tabs' (`tabs`, when it's an object),
+// and `widget` the entry in `tabsWidget`, or null for Spaces' own. `misplaced`
+// says `tabs` looks like a widget entry, which goes in `tabsWidget`.
+export function tabsSlot(settings) {
+  const tabs = settings ? settings.tabs : undefined
+  const shown = tabs !== false
+  const plain = !!tabs && typeof tabs === "object" && !Array.isArray(tabs)
+  return {
+    shown,
+    settings: plain ? tabs : {},
+    widget: shown && settings ? parseBarEntry(settings.tabsWidget) : null,
+    misplaced: typeof tabs === "string" || (plain && ("id" in tabs || "source" in tabs || "type" in tabs)),
   }
-  return own
 }
 
 // Expands a leading `~/` or `$HOME/` against `home`.

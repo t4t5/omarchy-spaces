@@ -34,11 +34,11 @@ omarchy plugin enable omarchy.menu --section left --index 0
 
 ## Customizing the tabs
 
-The `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` has a `tabs` slot, past the sidebar's edge. It holds a bar widget entry, written the same way as an entry in the bar's own layout.
+The tabs sit past the sidebar's edge, and two keys on the `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` set them: `tabs` for Spaces' own tabs, and `tabsWidget` to show another widget in their place.
 
 ### Spaces' own tabs
 
-Leave `tabs` out and you get Spaces' own tabs. An object with neither an `id` nor a `source` changes their settings (one with a `source` is a custom module, below):
+`tabs` holds their settings. Leave it out for the defaults, or set it to `false` to hide the tabs (and any `tabsWidget` with them):
 
 ```json
 {
@@ -55,14 +55,14 @@ Leave `tabs` out and you get Spaces' own tabs. An object with neither an `id` no
 - `labels`: `false` shows only the numbers, without the tabs' names.
 - `newTab`: `false` hides the `+`.
 
-### Another widget in the tabs slot
+### Another widget in place of the tabs
 
-Put any bar widget in `tabs` by its id, or one of your own as a custom QML module, as the bar takes them: `{ "id": "my-tabs", "type": "qml" }` loads `~/.config/omarchy/bar/modules/my-tabs.qml`, and `{ "source": "~/path/to/MyTabs.qml" }` loads that file. The rest of the entry is the widget's settings. `"tabs": false` hides the tabs.
+`tabsWidget` takes a bar widget entry, written as in the bar's own layout: any bar widget by its id, or one of your own as a custom QML module. `{ "id": "my-tabs", "type": "qml" }` loads `~/.config/omarchy/bar/modules/my-tabs.qml`, and `{ "source": "~/path/to/MyTabs.qml" }` loads that file. The rest of the entry is the widget's settings.
 
 ```json
 {
   "id": "com.t4t5.spaces",
-  "tabs": { "id": "io.github.someone.kanji-tabs", "compact": true }
+  "tabsWidget": { "id": "io.github.someone.kanji-tabs", "compact": true }
 }
 ```
 
@@ -72,15 +72,16 @@ Put any bar widget in `tabs` by its id, or one of your own as a custom QML modul
 
 ### Writing a tabs widget
 
-A widget for `tabs` is an ordinary bar widget: Spaces sets `bar`, `moduleName` and `settings` once the widget loads if it has those properties, as the bar does (so bind to them rather than marking them `required` or reading them in `Component.onCompleted`). It also sets:
+A widget for `tabsWidget` is an ordinary bar widget: Spaces sets `bar`, `moduleName` and `settings` once the widget loads if it has those properties, as the bar does (so bind to them rather than marking them `required` or reading them in `Component.onCompleted`). It also sets:
 
 - `maxWidth`: the room left before the bar's clock (`Infinity` when there's no limit). The widget should fit itself in it.
 - `spaces`: the space and its tabs, and what you can do with them.
 
 `spaces` has:
 
+- `version`: the version of this API, now `1`.
 - `space`: the space shown on this screen, `{ id, label, named, icon, status }`. `icon` is a glyph, emoji, image path, or `""`; `status` is `""`, `"working"`, `"done"` or `"waiting"`.
-- `tabs`: its tabs, each `{ id, slot, label, named, status, active }`. `status` is `""`, `"working"`, `"done"` or `"waiting"`.
+- `tabs`: its tabs, each `{ id, slot, label, named, status, active }`. `slot` is the tab's number; `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `sidebarOpen`: whether the sidebar is expanded on this screen.
 - `renaming`, `renameText` and `renameSelected`: the id of the tab being renamed, the name typed so far, and whether all of it is selected (so the next keypress replaces it). Spaces takes the keys: Enter keeps the name, Escape drops it.
 - `goToTab(target)`: by a tab's id or its number.
@@ -90,7 +91,7 @@ A widget for `tabs` is an ordinary bar widget: Spaces sets `bar`, `moduleName` a
 - `openTabMenu(id, x, y)`: opens a tab's menu at a point in the bar's window, from `mapToItem(null, x, y)`.
 - `toggleSidebar()`.
 
-Fields are only ever added to `spaces`, so a widget written for it keeps working.
+Treat the `id`s as opaque: pass them back to `spaces`, but don't read anything into their form. New fields can be added to `spaces` at any time. Spaces is young, so a field may still change or go, but when one does `version` goes up and the change is in the release notes, so a widget can check `spaces.version` before relying on it.
 
 ```qml
 import QtQuick
