@@ -53,6 +53,9 @@ pub(crate) struct Space {
     pub tabs: Option<Vec<Tab>>,
     /// Its terminal windows, oldest first.
     pub terminals: Vec<Terminal>,
+    /// Every window it has, by tab and then address, with its title and app.
+    /// Empty when Hyprland can't be reached.
+    pub clients: Vec<Client>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -93,6 +96,18 @@ pub(crate) struct Terminal {
     pub status: Option<Status>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct Client {
+    /// Hyprland's address for the window: `0x55a4...`.
+    pub address: String,
+    /// The tab it's on, by its id. `null` on a workspace without a number.
+    pub tab: Option<String>,
+    /// The window's app, as Hyprland's `class` says.
+    pub class: String,
+    /// What the window is titled now.
+    pub title: String,
+}
+
 /// The spaces in `rows`, with their tabs if Hyprland can be reached.
 pub(crate) fn list(rows: &[Row], hyprland: Option<(&Snapshot, &Live)>) -> List {
     List {
@@ -115,7 +130,23 @@ fn space(row: &Row, hyprland: Option<(&Snapshot, &Live)>) -> Space {
         left_at: (row.left_at > 0).then_some(row.left_at),
         tabs: hyprland.map(|(snapshot, live)| tabs_of(row, snapshot, live)),
         terminals: row.terminals.iter().map(|t| terminal(&row.id, t)).collect(),
+        clients: hyprland
+            .map(|(snapshot, _)| clients_of(&row.id, snapshot))
+            .unwrap_or_default(),
     }
+}
+
+fn clients_of(space: &str, snapshot: &Snapshot) -> Vec<Client> {
+    snapshot
+        .windows_of(space)
+        .into_iter()
+        .map(|w| Client {
+            address: w.address.clone(),
+            tab: w.tab.map(|key| name::tab_id(space, key)),
+            class: w.class.clone(),
+            title: w.title.clone(),
+        })
+        .collect()
 }
 
 fn tabs_of(row: &Row, snapshot: &Snapshot, live: &Live) -> Vec<Tab> {

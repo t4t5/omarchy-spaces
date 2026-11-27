@@ -10,6 +10,14 @@ Collapsed, the column is a rail of badges, one per space: two letters for its na
 
 Click the logo above the rail, or press a key bound to `spaces.toggle_sidebar()`, to expand it and see each space's name. Your windows and the bar's tabs slide aside to reveal it, and the keyboard stays with your windows. A key bound to `spaces.find_space()` searches it, expanding it first if it's collapsed. See [Keys](keys.md).
 
+## Searching
+
+Type to find a space by its name, or by a window it has: the window's title or its app. Only the spaces that match are listed, best match first, and each lists the windows that match under its name, with their title, their app and the tab they're on. Searching `antigravity` shows the spaces that have a window of that name open, and which windows.
+
+Up and Down (or `Ctrl+N` and `Ctrl+P`) move through the spaces and their windows in the order they're listed. Enter, or a click, on either goes to that space, where you left it, and ends the search. A window's row goes to its space, not to the window.
+
+The windows of `home` are searched too. Those on a special workspace, a scratchpad, aren't, as they belong to no space. With nothing typed the list is as ever, without windows.
+
 ## Icons
 
 Right-click a space to give its badge an icon in place of its letters: a Nerd Font glyph, an emoji, or a custom image file (`png`, `svg`, `jpg`, `webp`, `ico`). Tab switches between glyphs and emoji, type to search both at once, or click **Choose image from Files…** (or press `Ctrl+O`) to pick a logo from Files. The badge shows the icon under the cursor until you pick one.

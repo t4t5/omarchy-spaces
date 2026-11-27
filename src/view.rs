@@ -11,7 +11,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::live::{Live, Row, Screen, Snapshot, TerminalRow};
+use crate::live::{Live, Row, Screen, Snapshot, SpaceWindow, TerminalRow};
 use crate::name;
 use crate::status::Status;
 use crate::tabs;
@@ -76,6 +76,21 @@ struct Terminal<'a> {
     status: Option<Status>,
 }
 
+/// A window in a space, `home`'s included, as the sidebar's search finds it by
+/// its title and its app.
+#[derive(Debug, Serialize)]
+struct Client<'a> {
+    address: &'a str,
+    /// The tab it's on, by its id. Left out on a workspace without a number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tab: Option<String>,
+    /// The number the bar shows that tab as, 1-10. Left out when it shows none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slot: Option<u8>,
+    class: &'a str,
+    title: &'a str,
+}
+
 /// A space, as the sidebar shows it.
 #[derive(Debug, Serialize)]
 struct Space<'a> {
@@ -93,6 +108,10 @@ struct Space<'a> {
     status: Option<Status>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     terminals: Vec<Terminal<'a>>,
+    /// Every window it has, as the search finds them. A title that changes
+    /// changes the line, which the watch prints once, as for any other change.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    clients: Vec<Client<'a>>,
 }
 
 pub(crate) fn state<'a>(snapshot: &'a Snapshot, live: &Live, rows: &'a [Row]) -> State<'a> {
@@ -106,7 +125,7 @@ pub(crate) fn state<'a>(snapshot: &'a Snapshot, live: &Live, rows: &'a [Row]) ->
             .iter()
             .map(|screen| monitor(screen, snapshot, live, rows))
             .collect(),
-        spaces: rows.iter().map(space).collect(),
+        spaces: rows.iter().map(|row| space(row, snapshot)).collect(),
     }
 }
 
@@ -149,7 +168,17 @@ fn terminal<'a>(space: &str, t: &'a TerminalRow) -> Terminal<'a> {
     }
 }
 
-fn space(row: &Row) -> Space<'_> {
+fn client<'a>(space: &str, w: &'a SpaceWindow, snapshot: &Snapshot) -> Client<'a> {
+    Client {
+        address: &w.address,
+        tab: w.tab.map(|key| name::tab_id(space, key)),
+        slot: w.tab.and_then(|key| tabs::slot_of(space, key, snapshot)),
+        class: &w.class,
+        title: &w.title,
+    }
+}
+
+fn space<'a>(row: &'a Row, snapshot: &'a Snapshot) -> Space<'a> {
     Space {
         id: &row.id,
         label: &row.label,
@@ -162,6 +191,11 @@ fn space(row: &Row) -> Space<'_> {
         left_at: row.left_at,
         status: row.status,
         terminals: row.terminals.iter().map(|t| terminal(&row.id, t)).collect(),
+        clients: snapshot
+            .windows_of(&row.id)
+            .into_iter()
+            .map(|w| client(&row.id, w, snapshot))
+            .collect(),
     }
 }
 

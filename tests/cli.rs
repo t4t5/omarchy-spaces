@@ -52,6 +52,8 @@ struct Hyprland {
     pids: std::collections::HashMap<u32, u32>,
     /// The classes of windows that aren't terminals.
     classes: std::collections::HashMap<u32, String>,
+    /// The titles of windows, by address.
+    titles: std::collections::HashMap<u32, String>,
     /// Whether it says how windows are laid out, as 0.56 does.
     layouts: bool,
     /// Whether it answers with something unreadable.
@@ -241,12 +243,13 @@ impl Hyprland {
                         .map(|(ws, address)| {
                             let id = self.ensure(ws);
                             let class = self.classes.get(&address).cloned().unwrap_or_default();
+                            let title = self.titles.get(&address).cloned().unwrap_or_default();
                             let pid = self
                                 .pids
                                 .get(&address)
                                 .copied()
                                 .unwrap_or_else(|| 1000 + self.shared.get(&address).unwrap_or(&address));
-                            json!({ "address": format!("0x{address:x}"), "class": class, "stableId": format!("{address:x}"), "pid": pid, "workspace": { "id": id, "name": ws } })
+                            json!({ "address": format!("0x{address:x}"), "class": class, "title": title, "stableId": format!("{address:x}"), "pid": pid, "workspace": { "id": id, "name": ws } })
                         })
                         .collect(),
                 )
@@ -645,6 +648,14 @@ impl Env {
         hypr.addresses.remove(i);
         hypr.pids.remove(&address);
         hypr.tidy();
+    }
+
+    /// The window at `address` is titled `title`, of an app of class `class`.
+    fn title_window(&self, address: &str, class: &str, title: &str) {
+        let address = u32::from_str_radix(address.trim_start_matches("0x"), 16).unwrap();
+        let mut hypr = self.hypr.lock().unwrap();
+        hypr.classes.insert(address, class.into());
+        hypr.titles.insert(address, title.into());
     }
 
     fn set_pid(&self, address: &str, pid: u32) {
@@ -4284,4 +4295,161 @@ fn watch_exposes_folder_meta_and_terminals_for_widgets() {
     assert_eq!(s1["terminals"][0]["folder"], app.to_str().unwrap());
     assert_eq!(s1["terminals"][0]["status"], "working");
     drop(watch);
+}
+
+#[test]
+fn watch_and_ls_list_each_spaces_windows_for_the_search() {
+    use std::time::Duration;
+
+    let env = Env::new();
+    let notes = env.dir("notes");
+    let first = env.add_terminal("s1:1", &notes);
+    let second = env.add_window("s1:2");
+    let other = env.add_window("s1:12");
+    let home = env.add_window("3");
+    let scratch = env.add_window("special:scratch");
+    let bare = env.add_window("-5");
+    env.set_active("s1:1");
+    env.title_window(&first, "foot", "zz-first");
+    env.title_window(&second, "antigravity", "Antigravity - plan");
+    env.title_window(&other, "firefox", "Docs");
+    env.title_window(&home, "obsidian", "Notes");
+    env.title_window(&scratch, "foot", "scratchpad console");
+    env.title_window(&bare, "chat", "Chat");
+
+    let state = Watch::start(&env).settled(Duration::from_millis(400));
+    let clients = |state: &Value, space: &str| -> Vec<Value> {
+        let rows = state["spaces"].as_array().unwrap();
+        let row = rows.iter().find(|row| row["id"] == space).unwrap();
+        row["clients"].as_array().cloned().unwrap_or_default()
+    };
+    assert_eq!(
+        clients(&state, "s1"),
+        [
+            json!({ "address": first, "tab": "s1:1", "slot": 1, "class": "foot", "title": "zz-first" }),
+            json!({ "address": second, "tab": "s1:2", "slot": 2, "class": "antigravity", "title": "Antigravity - plan" }),
+            json!({ "address": other, "tab": "s1:12", "slot": 2, "class": "firefox", "title": "Docs" }),
+        ]
+    );
+    // `home`'s windows are found too, a workspace without a number having no
+    // tab (and so first), and a special workspace's windows belong to no space.
+    assert_eq!(
+        clients(&state, "home"),
+        [
+            json!({ "address": bare, "class": "chat", "title": "Chat" }),
+            json!({ "address": home, "tab": "home:3", "slot": 3, "class": "obsidian", "title": "Notes" }),
+        ]
+    );
+    let all = serde_json::to_string(&state).unwrap();
+    assert!(!all.contains("scratchpad console"), "{all}");
+    assert_eq!(state["version"], 2, "a new field, no new version");
+
+    // `space ls --json` says the same, by tab ids.
+    let rows = env.ls_json();
+    let ls = |id: &str| rows.iter().find(|row| row["id"] == id).unwrap()["clients"].clone();
+    assert_eq!(
+        ls("s1"),
+        json!([
+            { "address": first, "tab": "s1:1", "class": "foot", "title": "zz-first" },
+            { "address": second, "tab": "s1:2", "class": "antigravity", "title": "Antigravity - plan" },
+            { "address": other, "tab": "s1:12", "class": "firefox", "title": "Docs" },
+        ])
+    );
+    assert_eq!(ls("home").as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn a_window_on_a_renamed_tab_is_listed_by_the_tab_it_shows_as() {
+    use std::time::Duration;
+
+    let env = Env::new();
+    let first = env.add_window("s1:1");
+    let second = env.add_window("s1:2");
+    env.set_active("s1:2");
+    env.title_window(&second, "foot", "kept");
+    // The first tab ends and the second becomes the first: its workspace is
+    // renamed, so its address is still `s1:2`.
+    env.close_window(&first);
+    env.ok(&["renumber"]);
+    assert_eq!(env.active(), "s1:1");
+
+    let state = Watch::start(&env).settled(Duration::from_millis(400));
+    let rows = state["spaces"].as_array().unwrap();
+    let s1 = rows.iter().find(|row| row["id"] == "s1").unwrap();
+    assert_eq!(
+        s1["clients"],
+        json!([{ "address": second, "tab": "s1:1", "slot": 1, "class": "foot", "title": "kept" }])
+    );
+}
+
+#[test]
+fn watch_prints_a_new_line_for_a_new_title_and_none_for_the_same_one() {
+    use std::time::Duration;
+
+    let env = Env::new();
+    let window = env.add_window("s1:1");
+    env.set_active("s1:1");
+    env.title_window(&window, "firefox", "Docs");
+    let watch = Watch::start(&env);
+    let _ = watch.settled(Duration::from_millis(400));
+
+    // The same title read again prints nothing.
+    env.event("windowtitlev2>>1,Docs");
+    assert!(
+        watch
+            .lines
+            .recv_timeout(Duration::from_millis(2600))
+            .is_err()
+    );
+
+    // A new one is printed once, however often it is read.
+    env.title_window(&window, "firefox", "Mail");
+    let state = watch.next_state(Duration::from_secs(3));
+    let rows = state["spaces"].as_array().unwrap();
+    let s1 = rows.iter().find(|row| row["id"] == "s1").unwrap();
+    assert_eq!(s1["clients"][0]["title"], "Mail");
+    assert!(
+        watch
+            .lines
+            .recv_timeout(Duration::from_millis(2600))
+            .is_err()
+    );
+}
+
+#[test]
+fn a_windows_tab_number_is_the_one_the_bar_shows() {
+    use std::time::Duration;
+
+    let env = Env::new();
+    let first = env.add_window("s1:1");
+    let second = env.add_window("s1:2");
+    let guest = env.add_window("s1:12");
+    let three = env.add_window("3");
+    let thirteen = env.add_window("13");
+    env.set_active("s1:1");
+    // With one monitor left, the second's tab is a guest on the first.
+    env.unplug();
+
+    let state = Watch::start(&env).settled(Duration::from_millis(400));
+    let rows = state["spaces"].as_array().unwrap();
+    let row = |id: &str| rows.iter().find(|row| row["id"] == id).unwrap();
+    let slot = |id: &str, address: &str| {
+        let clients = row(id)["clients"].as_array().unwrap();
+        clients.iter().find(|c| c["address"] == address).unwrap()["slot"].clone()
+    };
+    // What the bar shows for each of the space's tabs.
+    let bar: std::collections::HashMap<String, Value> = state["monitors"][0]["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tab| (tab["id"].as_str().unwrap().to_string(), tab["slot"].clone()))
+        .collect();
+    assert_eq!(slot("s1", &first), bar["s1:1"]);
+    assert_eq!(slot("s1", &second), bar["s1:2"]);
+    assert_eq!(slot("s1", &guest), bar["s1:12"]);
+    assert_eq!(slot("s1", &second), 2);
+    assert_ne!(slot("s1", &guest), 2, "not s1:2's number again");
+    // In `home`, a number a tab shares with an earlier one shows as none.
+    assert_eq!(slot("home", &three), 3);
+    assert_eq!(slot("home", &thirteen), Value::Null);
 }

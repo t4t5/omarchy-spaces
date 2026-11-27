@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, pluginSettings, sidebarSlot, widgetWidths, tabsSlot, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicSpaceRow, publicTab, publicTerminal, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, pluginSettings, sidebarSlot, widgetWidths, tabsSlot, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicSpaceRow, publicTab, publicTerminal, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, searchRows, sameRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -30,7 +30,7 @@ test("parses a line of space watch", () => {
   assert.deepEqual(state.monitors.map((m) => [m.name, m.space, m.tab, m.refresh, m.tiled]), [["eDP-1", "s1", "s1:2", 120, true], ["DP-1", "s1", "s1:11", 60, false]])
   const rows = state.spaces
   assert.equal(rows.length, 4)
-  assert.deepEqual(rows[0], { id: "home", label: "home", named: false, icon: "", folder: "", meta: {}, active: false, windows: 4, leftAt: 1000, status: "", terminals: [] })
+  assert.deepEqual(rows[0], { id: "home", label: "home", named: false, icon: "", folder: "", meta: {}, active: false, windows: 4, leftAt: 1000, status: "", terminals: [], clients: [] })
   assert.equal(rows[3].windows, -1, "no count without Hyprland")
   assert.equal(rows[3].named, true)
   assert.deepEqual(rowsOf([{ label: "x" }]), [], "rows without an id are dropped")
@@ -114,6 +114,113 @@ test("filters and ranks, keeping the list order with no query", () => {
   assert.deepEqual(names("2026"), ["Tax 2026"])
   assert.deepEqual(names("tax"), ["Tax 2026"], "ignoring case")
   assert.deepEqual(names("qq"), [])
+})
+
+const withWindows = () => {
+  const windows = {
+    home: [{ address: "0x1", tab: "home:2", slot: 2, class: "obsidian", title: "Notes" }],
+    s1: [
+      { address: "0x2", tab: "s1:1", slot: 1, class: "foot", title: "build log" },
+      { address: "0x3", tab: "s1:2", slot: 2, class: "antigravity", title: "Antigravity - plan" },
+    ],
+    s2: [{ address: "0x4", class: "firefox", title: "antigravity docs" }],
+    s3: [{ address: "0x5", tab: "s3:1", slot: 1, class: "foot", title: "zsh" }],
+  }
+  const spaces = ["home", "s1", "s2", "s3"].map((id) => ({ id, label: { home: "home", s1: "ren", s2: "Mail", s3: "antigravity-fork" }[id], clients: windows[id] }))
+  return rowsOf(spaces)
+}
+
+test("reads each space's windows, ignoring what isn't one", () => {
+  const rows = rowsOf([
+    { id: "s1", clients: [{ address: "0x2", tab: "s1:1", slot: 1, class: "foot", title: "x" }, { title: "no address" }, null, { address: "0x3" }] },
+    { id: "s2", clients: "nope" },
+    { id: "s3" },
+  ])
+  assert.deepEqual(rows[0].clients, [
+    { address: "0x2", tab: "s1:1", slot: 1, class: "foot", title: "x" },
+    { address: "0x3", tab: "", slot: 0, class: "", title: "" },
+  ])
+  assert.deepEqual(rows[1].clients, [])
+  assert.deepEqual(rows[2].clients, [])
+})
+
+test("searching lists the spaces with a matching window, and their windows", () => {
+  const rows = withWindows()
+  const shown = (query) => searchRows(rows, query).map((item) => (item.window ? "  " + item.title : item.label))
+  // No query: the spaces as they are, and no windows.
+  assert.deepEqual(searchRows(rows, ""), rows)
+  assert.deepEqual(searchRows(rows, "  "), rows)
+  assert.ok(searchRows(rows, "").every((item) => !item.window))
+  // By title, case-insensitively, and by app. Only spaces with a match show.
+  assert.deepEqual(shown("build"), ["ren", "  build log"])
+  assert.deepEqual(shown("OBSIDIAN"), ["home", "  Notes"])
+  // Spaces with a matching window show it; one that matches by its name
+  // shows too, here with no window of its own that matches.
+  assert.deepEqual(shown("antigravity"), ["ren", "  Antigravity - plan", "Mail", "  antigravity docs", "antigravity-fork"])
+  assert.deepEqual(shown("qq"), [])
+})
+
+test("a space that matches by name alone shows without windows", () => {
+  const rows = withWindows()
+  const items = searchRows(rows, "fork")
+  assert.deepEqual(items.map((item) => item.id), ["s3"])
+})
+
+test("spaces are ordered by their best match, and a window's by its own score", () => {
+  const rows = withWindows()
+  // ren's window matches by its app, a prefix, and beats the others, which
+  // match by a title; Mail's window and a name that matches as well come
+  // after it, in the order the spaces are in.
+  const items = searchRows(rows, "antigravity")
+  assert.deepEqual(
+    items.map((item) => item.window ? item.address : item.id),
+    ["s1", "0x3", "s2", "0x4", "s3"],
+  )
+  // Two windows of a space: a prefix first, then the earlier substring.
+  const two = rowsOf([{ id: "s1", label: "x", clients: [
+    { address: "0xa", class: "foot", title: "a build log" },
+    { address: "0xb", class: "foot", title: "build" },
+    { address: "0xc", class: "foot", title: "my build" },
+  ] }])
+  assert.deepEqual(searchRows(two, "build").slice(1).map((item) => item.address), ["0xb", "0xa", "0xc"])
+})
+
+test("a window is an item by its address, so a new title keeps the cursor on it", () => {
+  const rows = withWindows()
+  const before = searchRows(rows, "antigravity")
+  const retitled = rows.map((row) => row.id === "s1"
+    ? { ...row, clients: row.clients.map((c) => c.address === "0x3" ? { ...c, title: "Antigravity - review" } : c) }
+    : row)
+  const after = searchRows(retitled, "antigravity")
+  const item = (items) => items.find((i) => i.address === "0x3")
+  assert.equal(item(before).id, "window:0x3")
+  assert.equal(item(after).id, "window:0x3")
+  assert.equal(item(after).title, "Antigravity - review")
+  assert.deepEqual(item(after), { ...item(before), title: "Antigravity - review", label: "Antigravity - review" })
+  const picked = item(before).id
+  assert.equal(cursorIndex(after, "antigravity", picked), after.findIndex((i) => i.address === "0x3"))
+  // The picked window goes when it stops matching: the cursor starts over.
+  assert.equal(cursorIndex(after.filter((i) => i.id !== picked), "antigravity", picked), 0)
+})
+
+test("a window carries what the list shows, and its space to open", () => {
+  const item = searchRows(withWindows(), "plan").find((i) => i.window)
+  assert.deepEqual(item, {
+    id: "window:0x3", window: true, space: "s1", address: "0x3", tab: "s1:2", slot: 2,
+    title: "Antigravity - plan", app: "antigravity", label: "Antigravity - plan", icon: "", active: false, status: "",
+  })
+})
+
+test("the list only changes when what it shows does", () => {
+  const rows = withWindows()
+  const retitled = rows.map((row) => ({ ...row, clients: row.clients.map((c) => ({ ...c, title: c.title + "!" })) }))
+  assert.equal(sameRows(searchRows(rows, ""), searchRows(retitled, "")), true, "windows aren't listed without a search")
+  assert.equal(sameRows(searchRows(rows, "antigravity"), searchRows(retitled, "antigravity")), false)
+  assert.equal(sameRows(searchRows(rows, ""), searchRows(rows.map((r) => ({ ...r, label: r.label + "2" })), "")), false)
+  // A `clients` key in a space's own metadata is its own, and does show.
+  const meta = (value) => rows.map((r) => ({ ...r, meta: { clients: value } }))
+  assert.equal(sameRows(searchRows(meta(1), ""), searchRows(meta(1), "")), true)
+  assert.equal(sameRows(searchRows(meta(1), ""), searchRows(meta(2), "")), false)
 })
 
 test("starts on the space left most recently", () => {

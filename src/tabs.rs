@@ -48,6 +48,16 @@ pub(crate) fn on_monitor(
         .collect()
 }
 
+/// The number the bar shows a tab as, by its key: on the monitor it's on, the
+/// same numbering `on_monitor` gives. `None` for a tab with no number, or one
+/// no monitor is known to have.
+pub(crate) fn slot_of(space: &str, key: u8, snapshot: &Snapshot) -> Option<u8> {
+    let monitor = &snapshot.places.get(&(space.to_string(), key))?.monitor;
+    slots(space, monitor, snapshot)
+        .into_iter()
+        .find_map(|(k, slot)| (k == key && slot > 0).then_some(slot))
+}
+
 /// The space's tab that a monitor shows, by its key.
 fn shown_on(space: &str, monitor: &str, snapshot: &Snapshot) -> Option<u8> {
     let screen = snapshot.screens.iter().find(|s| s.name == monitor)?;

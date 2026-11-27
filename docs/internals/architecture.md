@@ -30,6 +30,7 @@ The same watch serves `space events` (`src/events.rs`), on `$XDG_RUNTIME_DIR/oma
 | The active space's terminals' shells | Five times a second, as a shell changing folder or starting a program sends no event |
 | The other spaces' shells | Every two seconds |
 | All shells | When a window's title changes, as terminals retitle themselves on `cd` and as a command starts |
+| Windows' titles, for the search | With Hyprland's state, so a new title shows within two seconds; the line is printed again only if it differs |
 
 ## `hypr/omarchy-spaces.lua`: the Hyprland part
 

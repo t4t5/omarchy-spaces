@@ -51,9 +51,13 @@ Item {
   // has them so.
   property var pendingOrder: null
   readonly property var rows: Spaces.ordered(root.now.spaces, root.pendingOrder)
-  readonly property var shownRows: Spaces.filterRows(root.rows, root.filterText)
-  // The space you moved the cursor to, by its id, which a fresh list then
-  // keeps it on; "" while it's where it starts.
+  // What the list shows: the spaces, or, searching, those that match with the
+  // windows that do under each (Spaces.searchRows). It is only replaced when
+  // it would look different, so a title that changes while the list has no
+  // windows doesn't rebuild it.
+  property var shownRows: []
+  // The item you moved the cursor to, by its id (a window's is its address's),
+  // which a fresh list then keeps it on; "" while it's where it starts.
   property string picked: ""
   readonly property int selectedIndex: Spaces.cursorIndex(root.shownRows, root.filterText, root.picked)
   readonly property string error: root.watch && root.rows.length === 0 ? root.watch.error : ""
@@ -265,6 +269,14 @@ Item {
     })
   }
 
+  function refreshShown() {
+    var next = Spaces.searchRows(root.rows, root.filterText)
+    if (!Spaces.sameRows(root.shownRows, next)) root.shownRows = next
+  }
+
+  onRowsChanged: root.refreshShown()
+  onFilterTextChanged: root.refreshShown()
+
   function setFilter(next) {
     root.filterText = next
     root.picked = ""
@@ -289,8 +301,9 @@ Item {
     var row = root.shownRows[index]
     if (root.controller) root.controller.closeMenu()
     root.endSearch()
-    // It says why in a notification if it can't.
-    Quickshell.execDetached(["space", "go", row.id])
+    // A window opens its space, as the space does. It says why in a
+    // notification if it can't.
+    Quickshell.execDetached(["space", "go", row.window ? row.space : row.id])
   }
 
   // Moves the space at `from` in the list to `to`, where a drag dropped it.
@@ -359,6 +372,7 @@ Item {
   }
 
   Component.onCompleted: {
+    root.refreshShown()
     motionProc.running = true
     gapsProc.running = true
   }

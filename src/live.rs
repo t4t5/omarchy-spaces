@@ -41,6 +41,7 @@ pub(crate) struct SpaceWindow {
     /// The tab it's on, by its key.
     pub tab: Option<u8>,
     pub class: String,
+    pub title: String,
     pub rect: Rect,
     pub floating: bool,
     pub fullscreen: u8,
@@ -165,6 +166,18 @@ impl Snapshot {
         space_ids(&self.workspaces, &self.windows)
     }
 
+    /// A space's windows, `home`'s included, by tab and then address, so that
+    /// the same windows are always listed in the same order.
+    pub fn windows_of(&self, space: &str) -> Vec<&SpaceWindow> {
+        let mut windows: Vec<&SpaceWindow> = self
+            .space_windows
+            .iter()
+            .filter(|window| window.space == space)
+            .collect();
+        windows.sort_by(|a, b| (a.tab, &a.address).cmp(&(b.tab, &b.address)));
+        windows
+    }
+
     #[cfg(test)]
     pub(crate) fn add_space_for_test(&mut self, id: &str) {
         self.workspaces.entry(id.to_string()).or_default().insert(1);
@@ -260,6 +273,7 @@ pub(crate) fn snapshot(hypr: &Hypr) -> Result<Snapshot> {
                 space: location.space().to_string(),
                 tab: location.key(),
                 class: client.class,
+                title: client.title,
                 rect: Rect {
                     x: client.at.0,
                     y: client.at.1,

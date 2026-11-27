@@ -153,6 +153,7 @@ mod tests {
             space: space.into(),
             tab: Some(tab),
             class: "terminal".into(),
+            title: String::new(),
             rect: Rect::default(),
             floating: false,
             fullscreen: 0,

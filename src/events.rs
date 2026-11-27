@@ -652,6 +652,7 @@ mod tests {
             left_at: None,
             tabs: Some(vec![tab(&format!("{id}:1"), 1, "app", true, None)]),
             terminals: vec![term("0x1", &format!("{id}:1"), None)],
+            clients: Vec::new(),
         }
     }
 

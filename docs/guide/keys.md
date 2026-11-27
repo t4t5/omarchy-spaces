@@ -32,7 +32,7 @@ Bind these actions rather than `space` commands: they stay the same if the comma
 | Action | Does |
 |---|---|
 | `spaces.toggle_sidebar()` | Expand or collapse the spaces sidebar |
-| `spaces.find_space()` | Find a space: type to filter, Enter to switch, Escape to stop. Expands the sidebar for the search if it's collapsed |
+| `spaces.find_space()` | Find a space, by its name or a window's title or app: type to filter, Enter to switch, Escape to stop. Expands the sidebar for the search if it's collapsed |
 | `spaces.next_space()` / `spaces.prev_space()` | Next / previous space, down and up the sidebar. They wrap around, with `home` at the top |
 | `spaces.new_space()` | New space, with a terminal in the folder you are in |
 | `spaces.rename_space()` | Rename the space you are in: type over its name in the sidebar, Enter to keep it, Escape to stop. An empty name has it called after its folder again |

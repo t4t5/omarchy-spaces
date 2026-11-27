@@ -87,6 +87,7 @@ A terminal that Spaces opens has `SPACE_ID` set to its space, for when there's n
 
 - A space has its `tabs`, each with its `id`, for commands, and its `slot`, the number it shows on its `monitor` (`null` for none). It has its `meta` too.
 - A terminal's `tab` is its tab's id.
+- `clients` is every window a space has, `home`'s too, by tab and then address, each with its `address`, its `tab` (the id, `null` on a workspace without a number), its `class` (the app) and its `title`, as it is now. Windows on special workspaces aren't listed.
 - `status` is `working`, `waiting` or `null`. Only `space watch`, which follows agents, can tell that one is done, so `space events` says so but `space ls` can't.
 - `version` goes up only when a change would break a script. New fields can come without.
 
@@ -103,6 +104,8 @@ Pass a tab's id as it is rather than reading or making one up: what it's made of
 - `status.changed`: an agent in a terminal is working, waiting or done, or no longer
 
 `--type status.changed,space.focused` prints only those, and `--no-snapshot` leaves the snapshot out.
+
+The `snapshot` and the `space.*` events carry each space's `clients`, as `space ls --json` has them.
 
 The events come from `space watch`, which the plugin runs, so they say what the sidebar shows. Without it, `space events` waits for it. When it restarts, as it does after an update, another snapshot comes, as things may have changed in between.
 

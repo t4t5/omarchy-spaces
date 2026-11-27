@@ -28,6 +28,10 @@ import "Spaces.mjs" as Spaces
 // slide aside to show where it will drop. `home` stays first, and a search's
 // list, in the search's order, can't be dragged.
 //
+// Searching, a space that has a window matching what you typed lists it under
+// its name, indented, with its title and its app (Spaces.searchRows). They are
+// rows like any other for the cursor and a click, and open the window's space.
+//
 // The widgets in `sidebar.space.widgets` show on a line under each space's
 // name, side by side, each handed the space (`SpaceWidget`). They only show:
 // the row takes the clicks and the drags. With any, a row is tall enough for
@@ -78,6 +82,9 @@ Item {
   // None when the header is on the bar (TabsWidget.qml).
   readonly property int headerHeight: root.sidebar.headerOnBar ? 0 : root.slot
   readonly property int searchHeight: root.slot
+  // A window found by the search: its title over its app, as tall as a space
+  // row that has widgets.
+  readonly property int windowHeight: Math.max(root.slot, Math.ceil(nameMetrics.height) + root.detailHeight + Style.spacing.xxs * 3)
   // How much its text shows: all of it while the sidebar is expanded on this
   // screen, none of it otherwise, fading quickly between, so the rail is
   // icons alone.
@@ -355,6 +362,8 @@ Item {
           readonly property string icon: picking && root.controller.iconPreview ? root.controller.iconPreview : modelData.icon
           readonly property bool imageIcon: !home && Spaces.isImageIcon(icon)
           readonly property bool home: modelData.id === "home"
+          // A window the search found, under its space.
+          readonly property bool isWindow: modelData.window === true
           readonly property color hue: rowItem.home ? root.foreground
             : (Spaces.badgeColor(rowItem.modelData.label, root.controller ? root.controller.palette : Spaces.DEFAULT_PALETTE) || root.foreground)
           readonly property bool dragged: root.dragFrom === index
@@ -365,7 +374,7 @@ Item {
           Behavior on shift { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
 
           width: ListView.view.width
-          height: root.rowHeight
+          height: isWindow ? root.windowHeight : root.rowHeight
           z: dragged ? 1 : 0
           transform: Translate { y: rowItem.dragged ? root.dragDy : rowItem.shift }
 
@@ -384,6 +393,7 @@ Item {
           // home, which is no folder's.
           Rectangle {
             id: badge
+            visible: !rowItem.isWindow
             x: (root.slot - width) / 2
             anchors.verticalCenter: parent.verticalCenter
             width: root.badgeSize
@@ -439,6 +449,7 @@ Item {
           // What most needs you among its agents, on the badge's corner, at
           // full strength however dimmed the badge is.
           StatusDot {
+            visible: !rowItem.isWindow
             status: rowItem.modelData.status
             colors: root.controller ? root.controller.statusColors : null
             workingColor: root.foreground
@@ -449,6 +460,7 @@ Item {
 
           // Its name, centred, or above its widgets when any of them shows.
           Item {
+            visible: !rowItem.isWindow
             anchors.fill: parent
             anchors.leftMargin: root.textX
             anchors.rightMargin: Style.spacing.rowPaddingX
@@ -528,7 +540,7 @@ Item {
 
               Repeater {
                 id: hosts
-                model: root.widgets
+                model: rowItem.isWindow ? [] : root.widgets
                 onItemAdded: details.revision++
                 onItemRemoved: details.revision++
 
@@ -550,6 +562,43 @@ Item {
                   width: details.widths[index] || 0
                   height: details.height
                 }
+              }
+            }
+          }
+
+          // A window the search found: its title, and under it its app and the
+          // tab it's on, set in from its space's name.
+          Item {
+            visible: rowItem.isWindow
+            anchors.fill: parent
+            anchors.leftMargin: root.textX + Style.spacing.md
+            anchors.rightMargin: Style.spacing.rowPaddingX
+            opacity: root.textShown
+
+            Column {
+              anchors.verticalCenter: parent.verticalCenter
+              width: parent.width
+              spacing: Style.spacing.xxs
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: rowItem.modelData.title || rowItem.modelData.app || ""
+                color: rowItem.selected && root.sidebar.searching ? root.accent : root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                elide: Text.ElideRight
+              }
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: !rowItem.isWindow ? "" : [rowItem.modelData.app, rowItem.modelData.slot > 0 ? "tab " + rowItem.modelData.slot : ""].filter(function(part) { return part !== "" }).join(" · ")
+                color: root.foreground
+                opacity: 0.6
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                elide: Text.ElideRight
               }
             }
           }
@@ -600,7 +649,7 @@ Item {
               if (rowItem.renaming || rowMouse.wasDrag) return
               if (mouse.button !== Qt.RightButton) {
                 root.sidebar.activate(rowItem.index)
-              } else if (root.controller && Spaces.rowActions(rowItem.modelData).length > 0) {
+              } else if (root.controller && !rowItem.isWindow && Spaces.rowActions(rowItem.modelData).length > 0) {
                 // The base covers the screen, so its coordinates are the
                 // screen's, which the menu's surface shares.
                 var at = rowMouse.mapToItem(null, mouse.x, mouse.y)
@@ -662,7 +711,7 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
         textFormat: Text.PlainText
-        text: root.sidebar.error !== "" ? root.sidebar.error : "No space matches “" + root.sidebar.filterText + "”"
+        text: root.sidebar.error !== "" ? root.sidebar.error : "No space or window matches “" + root.sidebar.filterText + "”"
         color: root.foreground
         opacity: 0.7
         font.family: root.fontFamily

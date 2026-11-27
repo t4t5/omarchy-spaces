@@ -15,7 +15,9 @@ const NO_MONITOR = { name: "", space: "", tab: "", refresh: 0, tiled: false, tab
 //             each shows, by their ids (tab "" on a workspace without a
 //             number), and the tabs its bar does: [{ id, slot, label, named,
 //             status, windows, active }], slot 0 for no number
-//   spaces:   the rows, in the sidebar's order
+//   spaces:   the rows, in the sidebar's order, each with the windows it has:
+//             clients: [{ address, tab, slot, class, title }], tab "" and slot
+//             0 for a workspace without a number
 export function parseState(text) {
   let state
   try {
@@ -68,6 +70,7 @@ export function parseState(text) {
         leftAt: number(row.left_at),
         status: status(row.status),
         terminals: parseTerminals(row.terminals),
+        clients: parseClients(row.clients),
       })),
   }
 }
@@ -87,6 +90,19 @@ function parseTerminals(list) {
       program: typeof t.program === "string" ? t.program : "",
       label: typeof t.label === "string" ? t.label : "",
       status: status(t.status),
+    }))
+}
+
+function parseClients(list) {
+  if (!Array.isArray(list)) return []
+  return list
+    .filter((c) => c && typeof c.address === "string" && c.address !== "")
+    .map((c) => ({
+      address: c.address,
+      tab: typeof c.tab === "string" ? c.tab : "",
+      slot: number(c.slot),
+      class: typeof c.class === "string" ? c.class : "",
+      title: typeof c.title === "string" ? c.title : "",
     }))
 }
 
@@ -189,6 +205,68 @@ export function filterRows(rows, query) {
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((entry) => entry.row)
+}
+
+// What the sidebar lists while you search, in order: the spaces that match
+// `query` by what they're called or by a window they have, each followed by
+// its matching windows. A window matches by its title or its app, scored as a
+// name is. A space comes where its best match puts it, so a window can bring
+// its space up the list; its windows keep the order they score in, then the
+// order they came in. A window is an item of its own, `{ id, window: true,
+// space, address, tab, slot, title, app, label }`, whose id is made of its
+// address alone: a title that changes (browsers retitle all the time) is the
+// same item, so the cursor stays on it. With no query, just the rows, as
+// `filterRows` has them, and no windows.
+export function searchRows(rows, query) {
+  const q = String(query || "").trim()
+  if (!q) return rows.slice()
+  const found = []
+  rows.forEach((row, index) => {
+    const windows = (Array.isArray(row.clients) ? row.clients : [])
+      .map((client, at) => ({ client, at, score: Math.max(score(q, client.title), score(q, client.class)) }))
+      .filter((entry) => entry.score >= 0)
+      .sort((a, b) => b.score - a.score || a.at - b.at)
+    const named = score(q, row.label)
+    if (named < 0 && windows.length === 0) return
+    const best = Math.max(named, windows.length ? windows[0].score : -1)
+    found.push({ row, index, best, windows })
+  })
+  found.sort((a, b) => b.best - a.best || a.index - b.index)
+  const out = []
+  for (const entry of found) {
+    out.push(entry.row)
+    for (const { client } of entry.windows) {
+      out.push({
+        id: "window:" + client.address,
+        window: true,
+        space: entry.row.id,
+        address: client.address,
+        tab: client.tab,
+        slot: client.slot,
+        title: client.title,
+        app: client.class,
+        label: client.title || client.class,
+        icon: "",
+        active: false,
+        status: "",
+      })
+    }
+  }
+  return out
+}
+
+// Whether two lists of what the sidebar shows would look the same. A row's
+// windows are left out: they matter only once a search lists them, and then
+// they are items of their own. So a window retitled while you aren't
+// searching leaves the list as it is.
+export function sameRows(a, b) {
+  // Only the rows' own `clients`: a key of that name in their metadata is theirs.
+  const plain = (items) => JSON.stringify(items.map((item) => {
+    const copy = Object.assign({}, item)
+    delete copy.clients
+    return copy
+  }))
+  return plain(a) === plain(b)
 }
 
 // A row's right-click menu: which actions apply, and why not when one
