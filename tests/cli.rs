@@ -3541,7 +3541,10 @@ fn install_setup_replaces_omarchys_menu_and_workspaces_once() {
     assert!(run(&plugin, &["--setup"]).0.status.success());
     assert_eq!(fs::read_to_string(&link).unwrap(), "-- mine\n");
     assert!(!claude_skill.is_symlink());
-    assert_eq!(fs::read_to_string(claude_skill.join("SKILL.md")).unwrap(), "mine\n");
+    assert_eq!(
+        fs::read_to_string(claude_skill.join("SKILL.md")).unwrap(),
+        "mine\n"
+    );
 }
 
 #[test]
