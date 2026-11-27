@@ -19,20 +19,18 @@ Omarchy Spaces (`com.t4t5.spaces`) adds project-based spaces (sidebar rail on th
 - Do **not** clone `omarchy.workspaces` to customize Spaces tabs: `omarchy.workspaces` only reads numeric Hyprland workspaces, whereas Spaces uses named workspaces (`s1:1`, …) and drives tabs from `space watch`. Swap the `tabs.tab` view instead.
 - To place other Omarchy bar widgets beside Spaces, add them before or after `com.t4t5.spaces` in `bar.layout.left` (widgets after it already slide with it; `omarchy.menu` before it takes the corner while the sidebar keeps its header).
 
-## Swappable views (`~/.config/omarchy/shell.json`)
+## Customizing the bar (`~/.config/omarchy/shell.json`)
 
-Spaces keeps all behaviour and framing (clicks, drag-to-reorder, inline rename, context menus, width cap before the clock, sliding edge). Views only draw. Every node on the `com.t4t5.spaces` entry follows one rule:
+Spaces keeps all behaviour and framing (clicks, drag-to-reorder, inline rename, context menus, width cap before the clock, sliding edge).
 
-- omitted: built-in default
-- `"~/path/to/View.qml"`: replaces that node with your QML view
-- `{ ... }`: keeps the built-in host and overrides child nodes
-- `false`: hides optional nodes (`tabs.newTab`, `sidebar.header`)
+For simple tab tweaks (e.g. Japanese/Roman numerals, compact numbers without titles, hiding `+`), configure `tabs` directly on the `com.t4t5.spaces` entry:
 
 ```json
 {
   "id": "com.t4t5.spaces",
   "tabs": {
-    "tab": "~/.config/omarchy/spaces/KanjiTab.qml",
+    "numerals": ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"],
+    "labels": false,
     "newTab": false
   },
   "sidebar": {
@@ -41,11 +39,15 @@ Spaces keeps all behaviour and framing (clicks, drag-to-reorder, inline rename, 
 }
 ```
 
-### View contract (`api: 1`)
+`numerals` defaults to Arabic (`"1"`–`"10"`), takes an array of custom strings, or `false` to hide numerals; `labels` defaults to `true` (process/folder/app/custom name), or `false` to hide labels.
+
+For full visual control, any node follows one rule: omitted keeps the default, `"~/path/to/View.qml"` replaces that node with a custom QML view, `{ ... }` keeps the built-in host and overrides children, and `false` hides optional nodes (`tabs.newTab`, `sidebar.header`).
+
+### Custom QML view contract (`api: 1`)
 
 Every custom view must declare `readonly property int api: 1`, report `implicitWidth` and `implicitHeight` (never derive `implicitWidth` from `width`), and set `textFormat: Text.PlainText` on any `Text` displaying dynamic tab/space labels. On a load error or `api` mismatch, Spaces falls back to the built-in view and notifies once.
 
-- **`tabs.tab`**: receives `tab` (`{ id, slot, label, named, status, windows, active }` or `null` on an empty gap in `home`), `slot` (int), `gap` (bool), `gapRun` (bool, two+ consecutive gaps), `current`, `hovered`, `dragged`, `menuOpen`, `editing`, `vertical`, `theme`, and pre-bound `parts`:
+- **`tabs.tab`**: replaces a tab cell (background, hover, layout, parts). Receives `tab` (`{ id, slot, label, named, status, windows, active }` or `null` on a gap in `home`), `slot` (int), `gap` (bool), `gapRun` (bool), `current`, `hovered`, `dragged`, `menuOpen`, `editing`, `vertical`, `theme`, and pre-bound `parts`:
   - `parts.status`: pre-bound `StatusDot` `Component` — mount with `Loader { active: !!tab && tab.status !== ""; sourceComponent: parts ? parts.status : null }`.
   - `parts.editor`: pre-bound inline name editor (text + selection + caret, without the slot number) — mount with `Loader { active: editing && !vertical; sourceComponent: parts ? parts.editor : null }`.
 - **`tabs.newTab`**: receives `hovered`, `vertical`, `count`, `theme`.

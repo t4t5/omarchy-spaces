@@ -25,6 +25,8 @@ Item {
   property var theme: null
   property var tabViewNode: ({ mode: "default", path: "", url: "", children: {}, error: "" })
   property var newTabViewNode: ({ mode: "default", path: "", url: "", children: {}, error: "" })
+  property var numerals: null
+  property bool labels: true
 
   signal goToTab(string target)
   signal newTabRequested()
@@ -139,7 +141,13 @@ Item {
     onTriggered: root.settle()
   }
 
-  Component { id: defaultTabComponent; DefaultTab {} }
+  Component {
+    id: defaultTabComponent
+    DefaultTab {
+      numerals: root.numerals
+      labels: root.labels
+    }
+  }
   Component { id: defaultNewTabComponent; DefaultNewTab {} }
 
   // Where the tabs take the mouse. The bar lays an area of its own over each

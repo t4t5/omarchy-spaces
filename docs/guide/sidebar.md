@@ -32,79 +32,42 @@ Put it before the tabs, and the sidebar draws its own header:
 omarchy plugin enable omarchy.menu --section left --index 0
 ```
 
-## Customizing views
+## Customizing the bar
 
-Spaces keeps the behaviour (clicks, drag-to-reorder, inline renaming, menus, width cap, sliding with the sidebar) and lets you swap how its parts draw by pointing at your own QML files in `~/.config/omarchy/shell.json`.
+Spaces keeps the behaviour (clicks, drag-to-reorder, inline renaming, menus, width cap, sliding with the sidebar) and lets you customize the bar on its `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json`.
 
-Every node follows one rule: a file path replaces that node with your view, an object keeps the built-in and overrides its children, `false` hides optional nodes (`newTab`, `header`), and leaving it out keeps the default.
+For simple tweaks — such as Japanese numerals, hiding tab labels, or hiding `+` — configure `tabs` directly:
 
 ```json
 {
   "id": "com.t4t5.spaces",
   "tabs": {
-    "tab": "~/.config/omarchy/spaces/KanjiTab.qml",
-    "newTab": false
+    "numerals": ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"],
+    "labels": false
   }
 }
 ```
 
-You can also set `"tabs": "~/.config/omarchy/spaces/MyTabs.qml"` to replace the whole tab strip while keeping the recess, sliding edge, and room before the clock.
+- `numerals`: Arabic (`"1"`–`"10"`) by default, an array of custom strings for slots 1–10 (also used for empty gap slots in `home` and inline rename), or `false` to hide numerals.
+- `labels`: `true` by default (shows the tab's custom name, foreground process, folder, or app name), or `false` to show only numerals.
+- `newTab`: `false` to hide the `+` button, or a `.qml` path to replace it.
 
-Each view declares `readonly property int api: 1`, reports its `implicitWidth` and `implicitHeight`, and fills the width Spaces gives it (e.g. when the tab cap narrows tabs before the clock). If a view fails to load or declares a different `api`, Spaces falls back to the built-in view and shows a notification. Saving a custom view file reloads it live.
+### Custom QML views
 
-### Example: Japanese tabs (`KanjiTab.qml`)
+For full visual control, any node in the tree can point to your own `.qml` file — a file path replaces that node, an object keeps the built-in and overrides its children, `false` hides optional nodes (`newTab`, `header`), and leaving it out keeps the default:
 
-```qml
-import QtQuick
-
-Item {
-  readonly property int api: 1
-  property var tab          // null on an empty gap number in home
-  property int slot
-  property bool gap
-  property bool gapRun
-  property bool current
-  property bool hovered
-  property bool dragged
-  property bool menuOpen
-  property bool editing
-  property bool vertical
-  property var theme
-  property var parts
-
-  readonly property var kanji: ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
-  readonly property string mark: gapRun ? "…" : (kanji[slot - 1] || (slot > 0 ? String(slot) : "·"))
-
-  implicitWidth: vertical ? theme.barSize : row.implicitWidth + theme.padding * 2
-  implicitHeight: vertical ? 26 : theme.barSize
-
-  Rectangle {
-    anchors.fill: parent
-    anchors.margins: 4
-    radius: theme.cornerRadius
-    color: menuOpen || dragged || (hovered && !current) ? theme.hover : "transparent"
-  }
-
-  Row {
-    id: row
-    anchors.centerIn: parent
-    spacing: 6
-
-    Text {
-      textFormat: Text.PlainText
-      text: mark
-      color: current ? theme.accent : theme.foreground
-      opacity: current ? 1 : gap ? 0.3 : 0.6
-      font.family: theme.fontFamily
-      font.pixelSize: theme.fontSize
-      font.bold: current
-    }
-
-    Loader { active: editing && !vertical; sourceComponent: parts ? parts.editor : null }
-    Loader { active: !!tab && tab.status !== ""; sourceComponent: parts ? parts.status : null }
+```json
+{
+  "id": "com.t4t5.spaces",
+  "tabs": {
+    "tab": "~/.config/omarchy/spaces/MyTab.qml"
   }
 }
 ```
+
+Override `tabs.tab` (the tab cell: background, hover, layout, parts), `tabs.newTab`, or `tabs` (the whole strip inside the sliding frame).
+
+Each custom view declares `readonly property int api: 1`, reports `implicitWidth` and `implicitHeight`, and fills the width Spaces gives it. If a view fails to load or declares a different `api`, Spaces falls back to the built-in view and notifies once. Saving a custom `.qml` file reloads it live.
 
 ### View contract (`api: 1`)
 

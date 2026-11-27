@@ -2,9 +2,10 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import "Spaces.mjs" as Spaces
 
 // The built-in `tabs.tab` view, drawn through the same `api: 1` contract as a
-// user's custom tab view. Draws a tab (number + label + status dot), an empty
+// user's custom tab view. Draws a tab (numeral + label + status dot), an empty
 // gap number on `home`, an inline rename state (`parts.editor`), and compact
 // vertical mode.
 Item {
@@ -24,6 +25,10 @@ Item {
   property var theme: null
   property var parts: null
 
+  // Built-in options wired from `tabs` config.
+  property var numerals: null
+  property bool labels: true
+
   readonly property color foreground: root.theme ? root.theme.foreground : Color.bar.text
   readonly property color accent: root.theme ? root.theme.accent : Color.accent
   readonly property color hoverColor: root.theme ? root.theme.hover : Color.menu.selectedBackground
@@ -33,12 +38,14 @@ Item {
   readonly property real padding: root.theme ? root.theme.padding : Style.spacing.lg
   readonly property real cornerRadius: root.theme ? root.theme.cornerRadius : Style.cornerRadius
 
-  readonly property string numberText: root.slot > 0 ? String(root.slot) : ""
+  readonly property string numberText: Spaces.numeralFor(root.slot, root.numerals)
+  readonly property string fallbackSlot: root.slot > 0 ? String(root.slot) : "·"
   readonly property string displayText: {
-    if (root.gap) return root.gapRun ? "…" : String(root.slot)
-    if (root.vertical) return root.numberText || "·"
-    var labelText = root.tab ? root.tab.label : ""
-    return root.numberText + (root.numberText && labelText ? " " : "") + (labelText || (root.numberText ? "" : "·"))
+    if (root.gap) return root.gapRun ? "…" : (root.numberText || root.fallbackSlot)
+    if (root.vertical) return root.numberText || root.fallbackSlot
+    var text = root.labels && root.tab ? root.tab.label : ""
+    if (!root.numberText && !text) return root.fallbackSlot
+    return root.numberText + (root.numberText && text ? " " : "") + text
   }
 
   readonly property bool hasStatus: !!root.tab && root.tab.status !== ""

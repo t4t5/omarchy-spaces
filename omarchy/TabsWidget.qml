@@ -244,6 +244,8 @@ BarWidget {
       theme: root.viewTheme
       tabViewNode: root.tabsCfg.tab
       newTabViewNode: root.tabsCfg.newTab
+      numerals: root.tabsCfg.numerals
+      labels: root.tabsCfg.labels
       onGoToTab: function(target) { root.run(["space", "tab", "go", target]) }
       onNewTabRequested: root.run(["space", "tab", "new"])
       onTabMenuRequested: function(id, x, y) { root.openTabMenu(id, x, y) }

@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, VIEW_API, firstOnBar, expandPath, parseViewNode, tabsConfig, sidebarConfig, headerOnBar, tabViewModel, themeViewModel, tabCellProps, versionedUrl, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, VIEW_API, firstOnBar, expandPath, parseViewNode, numeralFor, tabsConfig, sidebarConfig, headerOnBar, tabViewModel, themeViewModel, tabCellProps, versionedUrl, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -279,6 +279,18 @@ test("parses view nodes with the recursive path / object / false / omit rule", (
   assert.equal(defaults.strip.mode, "default")
   assert.equal(defaults.tab.mode, "default")
   assert.equal(defaults.newTab.mode, "default")
+  assert.equal(defaults.numerals, null)
+  assert.equal(defaults.labels, true)
+
+  const kanji = ["一", "二", "三", "四", "五"]
+  const withNumerals = tabsConfig({ tabs: { numerals: kanji, labels: false } }, "/home/u")
+  assert.deepEqual(withNumerals.numerals, kanji)
+  assert.equal(withNumerals.labels, false)
+  assert.equal(numeralFor(1, kanji), "一")
+  assert.equal(numeralFor(6, kanji), "6", "falls back past the list")
+  assert.equal(numeralFor(1, false), "", "hidden numerals")
+  assert.equal(numeralFor(0, kanji), "")
+  assert.equal(tabsConfig({ tabs: { numerals: false } }, "/home/u").numerals, false)
 
   const customTab = tabsConfig({ tabs: { tab: "~/KanjiTab.qml", newTab: false } }, "/home/u")
   assert.equal(customTab.strip.mode, "default")

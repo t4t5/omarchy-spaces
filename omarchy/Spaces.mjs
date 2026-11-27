@@ -588,15 +588,31 @@ export function parseViewNode(value, home) {
   return { mode: "error", path: "", url: "", children: {}, error: "View entry must be a file path, object, or false" }
 }
 
-// Resolves `tabs`, `tabs.tab`, and `tabs.newTab` from the `com.t4t5.spaces`
-// entry's settings in `shell.json`.
+// The numeral shown for a tab slot `1..10`: Arabic (`"1"`–`"10"`) by default,
+// mapped through a custom `numerals` array (e.g. kanji), or `""` when hidden
+// (`numerals: false`) or without a slot.
+export function numeralFor(slot, numerals) {
+  if (!(slot > 0) || numerals === false) return ""
+  if (Array.isArray(numerals)) {
+    const custom = numerals[slot - 1]
+    if (custom !== undefined && custom !== null && String(custom) !== "") return String(custom)
+  }
+  return String(slot)
+}
+
+// Resolves `tabs`, `tabs.tab`, `tabs.newTab`, and built-in tab options
+// (`numerals`, `labels`) from the `com.t4t5.spaces` entry.
 export function tabsConfig(settings, home) {
   const root = parseViewNode(settings ? settings.tabs : undefined, home)
   const children = root.mode === "default" ? root.children : {}
+  const numerals = children.numerals === false ? false
+    : Array.isArray(children.numerals) ? children.numerals : null
   return {
     strip: root,
     tab: parseViewNode(children.tab, home),
     newTab: parseViewNode(children.newTab, home),
+    numerals,
+    labels: children.labels !== false,
   }
 }
 
