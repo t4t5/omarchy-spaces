@@ -79,6 +79,17 @@ enum Cmd {
     /// Read, set, or remove opaque external metadata on a space.
     #[command(subcommand)]
     Meta(MetaCmd),
+    /// Run a custom action configured in `config.toml` (`[[actions.space]]` or `[[actions.tab]]`).
+    Action {
+        /// Action id (or slug of its label).
+        id: String,
+        /// Target space id or name (defaults to caller's or active space).
+        #[arg(short, long)]
+        space: Option<String>,
+        /// Target tab id (defaults to caller's or focused tab).
+        #[arg(short, long)]
+        tab: Option<String>,
+    },
     /// Move a space up or down the sidebar, to a position counting from 1
     /// below `home`, which stays first.
     Reorder {
@@ -369,6 +380,7 @@ fn main() -> ExitCode {
             json,
         }) => commands::meta_set(space, key, value, json),
         Cmd::Meta(MetaCmd::Rm { space, key }) => commands::meta_rm(space, key),
+        Cmd::Action { id, space, tab } => commands::action(&id, space, tab),
         Cmd::Reorder { space, position } => commands::reorder(space, position),
         Cmd::Close { space } => commands::close(space),
         Cmd::Restore { file, auto } => commands::restore(file, auto),

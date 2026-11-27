@@ -46,7 +46,7 @@ space window tab <n> [--silent]                 # the window to tab n of the act
 
 ## Data of your own
 
-A space can hold data for your scripts and agents: any JSON, by key. It shows in `space ls --json` and `space events`, and comes back after a restart. Spaces itself never reads it.
+A space can hold data for your scripts and agents: any JSON, by key. It shows in `space ls --json`, `space events`, and custom QML widgets (`tabsWidget` and `rowWidget`), and comes back after a restart. Spaces itself never reads it.
 
 ```sh
 space meta get [key]          # all of a space's data, or one key's
@@ -55,6 +55,14 @@ space meta rm <key>           # remove a key
 ```
 
 Each takes `-s <space>` for a space other than the one it's run from.
+
+## Custom actions
+
+```sh
+space action <id> [-s <space>] [-t <tab>]  # run an action defined in config.toml (`[[actions]]`)
+```
+
+Actions also appear in space and tab right-click menus when their `when` condition matches. See [Configuration](configuration.md#custom-menu-actions) and [Extending Spaces](extending.md).
 
 ## The rest
 

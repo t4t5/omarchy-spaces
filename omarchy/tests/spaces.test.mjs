@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, tabsSlot, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicTab, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, matchesWhen, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, pluginSettings, rowSlot, tabsSlot, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicSpaceRow, publicTab, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -30,7 +30,7 @@ test("parses a line of space watch", () => {
   assert.deepEqual(state.monitors.map((m) => [m.name, m.space, m.tab, m.refresh, m.tiled]), [["eDP-1", "s1", "s1:2", 120, true], ["DP-1", "s1", "s1:11", 60, false]])
   const rows = state.spaces
   assert.equal(rows.length, 4)
-  assert.deepEqual(rows[0], { id: "home", label: "home", named: false, icon: "", active: false, windows: 4, leftAt: 1000, status: "" })
+  assert.deepEqual(rows[0], { id: "home", label: "home", named: false, icon: "", folder: "", meta: {}, active: false, windows: 4, leftAt: 1000, status: "" })
   assert.equal(rows[3].windows, -1, "no count without Hyprland")
   assert.equal(rows[3].named, true)
   assert.deepEqual(rowsOf([{ label: "x" }]), [], "rows without an id are dropped")
@@ -311,17 +311,72 @@ test("numbers tabs with custom numerals", () => {
 
 test("hands widgets in a slot a space and tabs of their own", () => {
   const state = parseState(line([
-    { id: "s1", label: "Tax 2026", named: true, icon: "🚀", status: "waiting", windows: 3, active: true, left_at: 1000 },
+    { id: "s1", label: "Tax 2026", named: true, icon: "🚀", folder: "/home/u/tax", meta: { git: { branch: "main" } }, status: "waiting", windows: 3, active: true, left_at: 1000 },
     { id: "s2", status: "bogus" },
   ]))
-  assert.deepEqual(publicSpace(state, "s1"), { id: "s1", label: "Tax 2026", named: true, icon: "🚀", status: "waiting" })
-  assert.deepEqual(publicSpace(state, "s2"), { id: "s2", label: "s2", named: false, icon: "", status: "" })
-  assert.deepEqual(publicSpace(EMPTY, "s9"), { id: "s9", label: "s9", named: false, icon: "", status: "" }, "before it's in spaces")
-  assert.deepEqual(publicSpace(EMPTY, ""), { id: "", label: "", named: false, icon: "", status: "" }, "before space watch")
+  assert.deepEqual(publicSpace(state, "s1"), { id: "s1", label: "Tax 2026", named: true, icon: "🚀", folder: "/home/u/tax", meta: { git: { branch: "main" } }, status: "waiting" })
+  assert.deepEqual(publicSpace(state, "s2"), { id: "s2", label: "s2", named: false, icon: "", folder: "", meta: {}, status: "" })
+  assert.deepEqual(publicSpace(EMPTY, "s9"), { id: "s9", label: "s9", named: false, icon: "", folder: "", meta: {}, status: "" }, "before it's in spaces")
+  assert.deepEqual(publicSpace(EMPTY, ""), { id: "", label: "", named: false, icon: "", folder: "", meta: {}, status: "" }, "before space watch")
+  assert.deepEqual(publicSpaceRow(state.spaces[0]), { id: "s1", label: "Tax 2026", named: true, icon: "🚀", folder: "/home/u/tax", meta: { git: { branch: "main" } }, status: "waiting", active: true, windows: 3 })
 
   const tab = publicTab({ id: "s1:2", slot: 2, label: "claude", named: false, status: "working", windows: 1, active: true, pid: 99 })
   assert.deepEqual(tab, { id: "s1:2", slot: 2, label: "claude", named: false, status: "working", active: true })
   assert.deepEqual(publicTab({ id: "s1:1", status: "bogus" }), { id: "s1:1", slot: 0, label: "", named: false, status: "", active: false })
+})
+
+test("reads plugin settings and rowWidget from barConfig", () => {
+  const barConfig = {
+    layout: {
+      left: [{ id: "com.t4t5.spaces", rowWidget: { id: "space-git", type: "qml", compact: true } }],
+    },
+  }
+  const settings = pluginSettings(barConfig, "com.t4t5.spaces")
+  assert.deepEqual(rowSlot(settings), { widget: { id: "space-git", settings: { type: "qml", compact: true } } })
+  assert.deepEqual(rowSlot(pluginSettings({ layout: { left: ["com.t4t5.spaces"] } }, "com.t4t5.spaces")), { widget: null })
+})
+
+test("evaluates when conditions and includes matching custom actions in menus", () => {
+  const space = { id: "s1", label: "app", folder: "/tmp/app", meta: { worktree: { branch: "feat/x" }, dirty: true }, status: "waiting", windows: 2 }
+  const home = { id: "home", label: "home", folder: "", meta: {}, status: "", windows: 1 }
+
+  assert.equal(matchesWhen("", space), true)
+  assert.equal(matchesWhen("folder", space), true)
+  assert.equal(matchesWhen("folder", home), false)
+  assert.equal(matchesWhen("!home, meta.worktree", space), true)
+  assert.equal(matchesWhen("meta.worktree.branch=feat/x", space), true)
+  assert.equal(matchesWhen("meta.worktree.branch!=main", space), true)
+  assert.equal(matchesWhen("status=waiting", space), true)
+  assert.equal(matchesWhen("status=done", space), false)
+
+  const state = parseState(line([], {
+    actions: {
+      space: [
+        { id: "new-wt", label: "New worktree…", icon: "󰘬", when: "folder" },
+        { id: "rm-wt", label: "Remove worktree", when: "meta.worktree", hint: "git" },
+        { id: "always", label: "Always" },
+      ],
+      tab: [{ id: "lazygit", label: "Open lazygit", when: "folder" }],
+    },
+  }))
+  const items = rowActions(space, state.actions.space)
+  assert.deepEqual(items.map((a) => [a.id, a.separatorBefore, a.hint]), [
+    ["rename", false, ""],
+    ["icon", false, ""],
+    ["action:new-wt", true, ""],
+    ["action:rm-wt", false, "git"],
+    ["action:always", false, ""],
+    ["close", true, "2 windows"],
+  ])
+  assert.deepEqual(rowActions(home, state.actions.space).map((a) => a.id), ["action:always"])
+
+  const tabItems = tabActions({ id: "s1:1", slot: 1, label: "", windows: 1, active: true }, { space: "s1", tabs: [] }, true, state.actions.tab, space)
+  assert.deepEqual(tabItems.map((a) => [a.id, a.separatorBefore]), [
+    ["rename-tab", false],
+    ["move-tab", false],
+    ["action:lazygit", true],
+    ["close-tab", true],
+  ])
 })
 
 test("offers rename, an icon and close, saying why close doesn't apply", () => {

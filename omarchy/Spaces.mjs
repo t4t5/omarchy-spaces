@@ -5,7 +5,7 @@
 const VERSION = 2
 
 // Before there is any.
-export const EMPTY = { space: "", focused: "", monitors: [], spaces: [] }
+export const EMPTY = { space: "", focused: "", monitors: [], spaces: [], actions: { space: [], tab: [] } }
 const NO_MONITOR = { name: "", space: "", tab: "", refresh: 0, tiled: false, tabs: [] }
 
 // A line of `space watch`, or throws with a readable message:
@@ -61,11 +61,38 @@ export function parseState(text) {
         label: typeof row.label === "string" && row.label ? row.label : row.id,
         named: row.named === true,
         icon: typeof row.icon === "string" ? row.icon : "",
+        folder: typeof row.folder === "string" ? row.folder : "",
+        meta: plainObject(row.meta),
         active: row.active === true,
         windows: typeof row.windows === "number" ? row.windows : -1,
         leftAt: number(row.left_at),
         status: status(row.status),
       })),
+    actions: parseActions(state.actions),
+  }
+}
+
+function plainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {}
+}
+
+function parseActionList(list) {
+  if (!Array.isArray(list)) return []
+  return list
+    .filter((a) => a && typeof a.id === "string" && a.id && typeof a.label === "string" && a.label)
+    .map((a) => ({
+      id: a.id,
+      label: a.label,
+      icon: typeof a.icon === "string" ? a.icon : "",
+      hint: typeof a.hint === "string" ? a.hint : "",
+      when: typeof a.when === "string" ? a.when : "",
+    }))
+}
+
+function parseActions(raw) {
+  return {
+    space: parseActionList(raw && raw.space),
+    tab: parseActionList(raw && raw.tab),
   }
 }
 
@@ -170,11 +197,101 @@ export function filterRows(rows, query) {
     .map((entry) => entry.row)
 }
 
+// Evaluates a `when` condition from `[[actions]]` against a space row.
+// Mirrors `hooks::matches_when` in Rust.
+export function matchesWhen(expr, space) {
+  const raw = String(expr || "").trim()
+  if (!raw) return true
+  const s = space || { id: "", folder: "", meta: {}, status: "" }
+  for (const part of raw.split(",")) {
+    const clause = part.trim()
+    if (!clause) continue
+    if (!matchClause(clause, s)) return false
+  }
+  return true
+}
+
+function matchClause(clause, space) {
+  const neq = clause.indexOf("!=")
+  if (neq >= 0) {
+    return !equalsValue(clause.slice(0, neq).trim(), clause.slice(neq + 2).trim(), space)
+  }
+  const eq = clause.indexOf("=")
+  if (eq >= 0) {
+    return equalsValue(clause.slice(0, eq).trim(), clause.slice(eq + 1).trim(), space)
+  }
+  const negated = clause.startsWith("!")
+  const key = (negated ? clause.slice(1) : clause).trim()
+  let truthy = false
+  if (key === "folder") truthy = !!space.folder
+  else if (key === "home") truthy = space.id === "home"
+  else if (key === "status") truthy = !!space.status
+  else if (key.startsWith("meta.")) truthy = isTruthy(lookupMeta(space.meta, key.slice(5)))
+  return negated ? !truthy : truthy
+}
+
+function equalsValue(key, expected, space) {
+  if (key === "status") return String(space.status || "") === expected
+  if (key === "id") return String(space.id || "") === expected
+  if (key === "folder") return String(space.folder || "") === expected
+  if (key.startsWith("meta.")) {
+    const value = lookupMeta(space.meta, key.slice(5))
+    return value !== undefined && valueText(value) === expected
+  }
+  return false
+}
+
+function lookupMeta(meta, path) {
+  if (!meta || typeof meta !== "object") return undefined
+  let current = meta
+  for (const part of path.split(".")) {
+    if (!current || typeof current !== "object" || Array.isArray(current) || !(part in current)) return undefined
+    current = current[part]
+  }
+  return current
+}
+
+function isTruthy(value) {
+  if (value === undefined || value === null) return false
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value !== 0
+  if (typeof value === "string") return value.length > 0
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === "object") return Object.keys(value).length > 0
+  return false
+}
+
+function valueText(value) {
+  if (value === null || value === undefined) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "boolean" || typeof value === "number") return String(value)
+  return JSON.stringify(value)
+}
+
+function customMenuItems(customActions, space, separateFirst) {
+  if (!Array.isArray(customActions) || customActions.length === 0) return []
+  const out = []
+  for (const action of customActions) {
+    if (!matchesWhen(action.when, space)) continue
+    out.push({
+      id: "action:" + action.id,
+      actionId: action.id,
+      icon: action.icon || "",
+      label: action.label,
+      enabled: true,
+      hint: action.hint || "",
+      separatorBefore: out.length === 0 && separateFirst,
+    })
+  }
+  return out
+}
+
 // A row's right-click menu: which actions apply, and why not when one
-// doesn't. `home` has none. Icons are Nerd Font glyphs: a pencil, a smiley,
-// a broom, a cross.
-export function rowActions(row) {
-  if (!row || row.id === "home") return []
+// doesn't. `home` has no built-in actions, only matching custom ones. Icons
+// are Nerd Font glyphs: a pencil, a smiley, a broom, a cross.
+export function rowActions(row, customActions) {
+  if (!row) return []
+  if (row.id === "home") return customMenuItems(customActions, row, false)
   const windows = row.windows > 0 ? row.windows : 0
   const actions = [
     { id: "rename", icon: "\u{f0cb6}", label: "Rename", enabled: true, hint: "", separatorBefore: false },
@@ -182,6 +299,9 @@ export function rowActions(row) {
   ]
   if (row.icon) {
     actions.push({ id: "clear-icon", icon: "\u{f00e2}", label: "Remove icon", enabled: true, hint: "", separatorBefore: false })
+  }
+  for (const item of customMenuItems(customActions, row, true)) {
+    actions.push(item)
   }
   actions.push({
     id: "close",
@@ -196,13 +316,13 @@ export function rowActions(row) {
 
 // A tab's right-click menu on the bar, of its monitor (`model`): name it, as
 // double-clicking it does, move it to another space, of which there may be
-// none (`elsewhere`), or close it. An empty tab is only there while
-// you're on it, so closing it takes another to go to, or a space to end:
-// `home` doesn't.
-export function tabActions(tab, model, elsewhere) {
+// none (`elsewhere`), any matching custom tab actions, or close it. An empty
+// tab is only there while you're on it, so closing it takes another to go to,
+// or a space to end: `home` doesn't.
+export function tabActions(tab, model, elsewhere, customActions, space) {
   if (!tab) return []
   const leavable = model.space !== "home" || model.tabs.some((t) => t.id !== tab.id && t.windows > 0)
-  return [
+  const actions = [
     { id: "rename-tab", icon: "\u{f0cb6}", label: "Rename", enabled: true, hint: "", separatorBefore: false },
     {
       id: "move-tab",
@@ -212,15 +332,20 @@ export function tabActions(tab, model, elsewhere) {
       hint: "",
       separatorBefore: false,
     },
-    {
-      id: "close-tab",
-      icon: "\u{f0156}",
-      label: "Close tab",
-      enabled: tab.windows > 0 || (tab.active && leavable),
-      hint: "",
-      separatorBefore: true,
-    },
   ]
+  const targetSpace = space || { id: model.space, folder: "", meta: {}, status: "" }
+  for (const item of customMenuItems(customActions, targetSpace, true)) {
+    actions.push(item)
+  }
+  actions.push({
+    id: "close-tab",
+    icon: "\u{f0156}",
+    label: "Close tab",
+    enabled: tab.windows > 0 || (tab.active && leavable),
+    hint: "",
+    separatorBefore: true,
+  })
+  return actions
 }
 
 // What to ask before closing a tab, for the windows that go with it; "" when
@@ -579,6 +704,32 @@ export function parseBarEntry(entry) {
   return { id, settings }
 }
 
+// The settings on the bar's `id` entry from `barConfig.layout`, or `{}`.
+export function pluginSettings(config, id) {
+  const layout = config && config.layout
+  if (!layout || typeof layout !== "object") return {}
+  for (const section of ["left", "centerBegin", "center", "centerEnd", "right"]) {
+    const items = layout[section]
+    if (!Array.isArray(items)) continue
+    for (const item of items) {
+      if (item && typeof item === "object" && item.id === id) {
+        const out = {}
+        for (const key of Object.keys(item)) if (key !== "id") out[key] = item[key]
+        return out
+      }
+    }
+  }
+  return {}
+}
+
+// The sidebar's row slot as Spaces' `settings` set it: `{ widget }`, where
+// `widget` is the bar widget or custom QML entry in `rowWidget`, or null.
+export function rowSlot(settings) {
+  return {
+    widget: settings ? parseBarEntry(settings.rowWidget) : null,
+  }
+}
+
 // The `tabs` slot as Spaces' `settings` set it: `{ shown, settings, widget,
 // misplaced }`. `shown` is whether Spaces' own tabs may show (`tabs !== false`),
 // `settings` are Spaces' own tabs' (`tabs`, when it's an object), and `widget`
@@ -641,7 +792,27 @@ export function publicSpace(state, id) {
     label: row && row.label ? String(row.label) : spaceId,
     named: !!row && row.named === true,
     icon: row && typeof row.icon === "string" ? row.icon : "",
+    folder: row && typeof row.folder === "string" ? row.folder : "",
+    meta: plainObject(row && row.meta),
     status: row ? status(row.status) : "",
+  }
+}
+
+// A space row as a sidebar `rowWidget` sees it.
+export function publicSpaceRow(row) {
+  if (!row) {
+    return { id: "", label: "", named: false, icon: "", folder: "", meta: {}, status: "", active: false, windows: -1 }
+  }
+  return {
+    id: String(row.id || ""),
+    label: row.label ? String(row.label) : String(row.id || ""),
+    named: row.named === true,
+    icon: typeof row.icon === "string" ? row.icon : "",
+    folder: typeof row.folder === "string" ? row.folder : "",
+    meta: plainObject(row.meta),
+    status: status(row.status),
+    active: row.active === true,
+    windows: typeof row.windows === "number" ? row.windows : -1,
   }
 }
 

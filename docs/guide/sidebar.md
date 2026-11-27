@@ -80,7 +80,7 @@ A widget for `tabsWidget` is an ordinary bar widget: Spaces sets `bar`, `moduleN
 `spaces` has:
 
 - `version`: the version of this API, now `1`.
-- `space`: the space shown on this screen, `{ id, label, named, icon, status }`. `icon` is a glyph, emoji, image path, or `""`; `status` is `""`, `"working"`, `"done"` or `"waiting"`.
+- `space`: the space shown on this screen, `{ id, label, named, icon, folder, meta, status }`. `icon` is a glyph, emoji, image path, or `""`; `folder` is the space's folder path or `""`; `meta` is its metadata object (`space meta`); `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `tabs`: its tabs, each `{ id, slot, label, named, status, active }`. `slot` is the tab's number; `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `sidebarOpen`: whether the sidebar is expanded on this screen.
 - `renaming`, `renameText` and `renameSelected`: the id of the tab being renamed, the name typed so far, and whether all of it is selected (so the next keypress replaces it). Spaces takes the keys: Enter keeps the name, Escape drops it.
@@ -90,6 +90,7 @@ A widget for `tabsWidget` is an ordinary bar widget: Spaces sets `bar`, `moduleN
 - `reorderTab(id, position)`: moves a tab to a position, counting from 1.
 - `openTabMenu(id, x, y)`: opens a tab's menu at a point in the bar's window, from `mapToItem(null, x, y)`.
 - `toggleSidebar()`.
+- `runAction(id, spaceId, tabId)`: runs a custom action from `config.toml` (`[[actions]]`).
 
 Treat the `id`s as opaque: pass them back to `spaces`, but don't read anything into their form. New fields can be added to `spaces` at any time. Spaces is young, so a field may still change or go, but when one does `version` goes up and the change is in the release notes, so a widget can check `spaces.version` before relying on it.
 
@@ -130,3 +131,25 @@ Item {
   }
 }
 ```
+
+## Customizing sidebar rows
+
+To show extra detail under each space's name while the sidebar is expanded (such as git branch, dirty state, worktree tags, or listening ports from `space meta`), set `rowWidget` on the `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json`. It takes the same widget entry forms as `tabsWidget`: a registered bar widget id, `{ "id": "my-row", "type": "qml" }` (loads `~/.config/omarchy/bar/modules/my-row.qml`), or `{ "source": "~/path/MyRow.qml" }`.
+
+```json
+{
+  "id": "com.t4t5.spaces",
+  "rowWidget": { "id": "space-git", "type": "qml" }
+}
+```
+
+Spaces keeps the sidebar's badges, status dots, drag-to-reorder, inline rename, icon picker, and search, and mounts your widget right below the space's name (hiding it while renaming or when its `implicitHeight` is `0` or `visible` is `false`). It sets any of these properties your QML item declares:
+
+- `space`: `{ id, label, named, icon, folder, meta, status, active, windows }`.
+- `settings`: the rest of the `rowWidget` entry from `shell.json`.
+- `foreground`, `accent`, `fontFamily`: the sidebar's current theme colors and font.
+- `expanded`: whether the sidebar is expanded on this screen.
+- `selected`: whether the row is selected or hovered.
+- `spaces`: `{ version: 1, goToSpace(id), runAction(actionId, spaceId) }`.
+
+See [Extending Spaces](extending.md) for working examples.

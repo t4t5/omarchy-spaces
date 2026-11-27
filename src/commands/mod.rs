@@ -6,6 +6,7 @@ pub mod space;
 pub mod tab;
 pub mod window;
 
+pub use crate::hooks::run_action as action;
 pub use crate::restore::restore;
 pub use space::{
     NewOptions, close, current, go, icon, ls, meta_get, meta_rm, meta_set, new, rename, reorder,
@@ -94,7 +95,7 @@ pub fn open_terminal(space: Option<String>, run: Vec<String>) -> Result<()> {
 
 /// Resolves an optional space argument: explicit target, else the caller's
 /// space (from `/proc` or `SPACE_ID`), else the focused space.
-pub(super) fn target_space(
+pub(crate) fn target_space(
     target: Option<String>,
     rows: &[live::Row],
     seen: Option<&live::Seen>,

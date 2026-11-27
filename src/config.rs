@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 
+use crate::events;
 use crate::paths;
 
 /// Settings that aren't ours: misspelled, or an older or newer Spaces'. Each
@@ -23,8 +24,112 @@ pub struct Config {
     pub restore: Restore,
     /// The sounds when an agent needs you (`sound.rs`).
     pub sounds: Sounds,
+    /// Custom menu actions (`[[actions.space]]`, `[[actions.tab]]`).
+    pub actions: Actions,
+    /// Event hooks (`[hooks]`), fired by `space watch` when things change.
+    pub hooks: Hooks,
     #[serde(flatten)]
     unknown: Unknown,
+}
+
+/// `[actions]`: user-defined commands shown in space and tab menus and runnable
+/// via `space action <id>`.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Actions {
+    pub space: Vec<Action>,
+    pub tab: Vec<Action>,
+    #[serde(flatten)]
+    unknown: Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Action {
+    #[serde(default)]
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub hint: Option<String>,
+    #[serde(default)]
+    pub when: Option<String>,
+    pub command: CommandSpec,
+    #[serde(flatten)]
+    unknown: Unknown,
+}
+
+impl Action {
+    /// The id used by `space action <id>` and menus: the configured `id`, or a
+    /// slug of `label` when left out.
+    pub fn resolved_id(&self) -> String {
+        let trimmed = self.id.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+        slug(&self.label)
+    }
+}
+
+fn slug(label: &str) -> String {
+    let mut out = String::new();
+    let mut dash = false;
+    for ch in label.chars() {
+        if ch.is_alphanumeric() {
+            if dash && !out.is_empty() {
+                out.push('-');
+            }
+            dash = false;
+            out.extend(ch.to_lowercase());
+        } else {
+            dash = true;
+        }
+    }
+    if out.is_empty() { "action".into() } else { out }
+}
+
+/// A command in `config.toml`: either a shell string (`sh -c`) or an argv list.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum CommandSpec {
+    Shell(String),
+    Argv(Vec<String>),
+}
+
+/// `[hooks]`: shell commands run on event types (`space.created`,
+/// `space.focused`, `space.removed`, `status.changed`, …).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Hooks {
+    #[serde(flatten)]
+    entries: BTreeMap<String, HookCommands>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum HookCommands {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Hooks {
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn for_event(&self, event: &str) -> Vec<&str> {
+        match self.entries.get(event) {
+            Some(HookCommands::One(cmd)) => vec![cmd.as_str()],
+            Some(HookCommands::Many(cmds)) => cmds.iter().map(String::as_str).collect(),
+            None => Vec::new(),
+        }
+    }
+
+    fn unknown_events(&self) -> impl Iterator<Item = &String> {
+        self.entries
+            .keys()
+            .filter(|key| !events::HOOK_TYPES.contains(&key.as_str()))
+    }
 }
 
 /// `[restore]`: whether the plugin restores on start, and what comes back.
@@ -102,14 +207,29 @@ impl Config {
 
     /// The settings that aren't ours, as `sounds.bell`.
     fn unknown(&self) -> Vec<String> {
-        [
+        let mut out: Vec<String> = [
             ("", &self.unknown),
             ("restore.", &self.restore.unknown),
             ("sounds.", &self.sounds.unknown),
+            ("actions.", &self.actions.unknown),
         ]
         .into_iter()
         .flat_map(|(table, unknown)| unknown.keys().map(move |key| format!("{table}{key}")))
-        .collect()
+        .collect();
+        for (i, action) in self.actions.space.iter().enumerate() {
+            for key in action.unknown.keys() {
+                out.push(format!("actions.space[{i}].{key}"));
+            }
+        }
+        for (i, action) in self.actions.tab.iter().enumerate() {
+            for key in action.unknown.keys() {
+                out.push(format!("actions.tab[{i}].{key}"));
+            }
+        }
+        for key in self.hooks.unknown_events() {
+            out.push(format!("hooks.{key}"));
+        }
+        out
     }
 }
 
@@ -172,5 +292,54 @@ mod tests {
 
         // A value of the wrong kind is still a mistake.
         assert!(read("[sounds]\nenabled = \"no\"\n").is_err());
+    }
+
+    #[test]
+    fn reads_actions_and_hooks() {
+        let config = read(
+            r#"
+[[actions.space]]
+label = "New worktree…"
+icon = "󰘬"
+when = "folder"
+command = "~/.config/omarchy-spaces/scripts/new-wt.sh"
+
+[[actions.space]]
+id = "rm-wt"
+label = "Remove worktree"
+when = "meta.worktree"
+command = ["~/scripts/rm.sh", "--force"]
+
+[[actions.tab]]
+label = "Lazygit"
+command = "space tab new -- lazygit"
+
+[hooks]
+"space.created" = "~/scripts/git-meta.sh"
+"space.focused" = ["~/scripts/git-meta.sh", "~/scripts/ping.sh"]
+"bogus.event" = "true"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.actions.space.len(), 2);
+        assert_eq!(config.actions.space[0].resolved_id(), "new-worktree");
+        assert_eq!(config.actions.space[1].resolved_id(), "rm-wt");
+        assert_eq!(
+            config.actions.space[1].command,
+            CommandSpec::Argv(vec!["~/scripts/rm.sh".into(), "--force".into()])
+        );
+        assert_eq!(config.actions.tab.len(), 1);
+        assert_eq!(config.actions.tab[0].resolved_id(), "lazygit");
+
+        assert_eq!(
+            config.hooks.for_event("space.created"),
+            vec!["~/scripts/git-meta.sh"]
+        );
+        assert_eq!(
+            config.hooks.for_event("space.focused"),
+            vec!["~/scripts/git-meta.sh", "~/scripts/ping.sh"]
+        );
+        assert_eq!(config.unknown(), ["hooks.bogus.event"]);
     }
 }

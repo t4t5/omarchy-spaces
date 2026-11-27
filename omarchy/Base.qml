@@ -22,6 +22,9 @@ Scope {
   property string look: "opaque"
   // The shell's bar: its edge and its thickness on each screen.
   property var bar: null
+  // Optional `rowWidget` entry from `shell.json`, and the bar's widget registry.
+  property var rowWidget: null
+  property var barWidgetRegistry: null
 
   BarSurface {
     id: surface
@@ -80,6 +83,8 @@ Scope {
           sidebar: root.sidebar
           controller: root.controller
           foreground: surface.foreground
+          rowWidget: root.rowWidget
+          barWidgetRegistry: root.barWidgetRegistry
         }
       }
     }

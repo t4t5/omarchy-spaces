@@ -38,6 +38,16 @@ Item {
     root.headerBars = bars
   }
 
+  // The settings on the bar's `com.t4t5.spaces` entry, as reported by
+  // TabsWidget.qml, or read directly from `shell.barConfig` before it loads.
+  property var barSettings: null
+  function setSettings(settings) {
+    root.barSettings = settings || null
+  }
+  readonly property var effectiveSettings: root.barSettings
+    || Spaces.pluginSettings(root.shell ? root.shell.barConfig : null, (root.manifest && root.manifest.id) || "com.t4t5.spaces")
+  readonly property var rowWidget: Spaces.rowSlot(root.effectiveSettings).widget
+
   function search() { sidebarItem.search() }
   function endSearch() { sidebarItem.endSearch() }
   function toggleSidebar(screen) { sidebarItem.toggleSidebar(screen) }
@@ -60,6 +70,8 @@ Item {
     controller: controllerItem
     look: Spaces.barLook(root.shell ? root.shell.barConfig : null)
     bar: root.shell ? root.shell.bar : null
+    rowWidget: root.rowWidget
+    barWidgetRegistry: root.barWidgetRegistry
   }
 
   SpaceMenu {

@@ -50,9 +50,13 @@ Item {
   readonly property var menuTab: root.menuTabAt ? root.menuTabAt.tab : null
   // Gone to another space, or the tab ended: the menu doesn't come back.
   onMenuTabChanged: if (!root.menuTab && root.menuTabFor) root.closeMenu()
-  readonly property var menuActions: root.menuTabFor
-    ? Spaces.tabActions(root.menuTab, root.menuTabAt ? root.menuTabAt.monitor : root.here, root.moveTargets.length > 0)
-    : Spaces.rowActions(root.menuRow)
+  readonly property var menuActions: {
+    var actions = root.now.actions || { space: [], tab: [] }
+    if (!root.menuTabFor) return Spaces.rowActions(root.menuRow, actions.space)
+    var monitor = root.menuTabAt ? root.menuTabAt.monitor : root.here
+    var tabSpace = root.rows.find(function(r) { return r.id === monitor.space }) || null
+    return Spaces.tabActions(root.menuTab, monitor, root.moveTargets.length > 0, actions.tab, tabSpace)
+  }
   // Whether the tab's menu has given way to asking whether to close it, and
   // what it asks.
   property bool confirmingClose: false
@@ -201,12 +205,25 @@ Item {
   // An action from a space's menu (Spaces.rowActions), or a tab's
   // (Spaces.tabActions).
   function act(id, row) {
+    var isTab = !!root.menuTabFor
+    var tabSpace = root.menuTabAt ? root.menuTabAt.monitor.space : root.here.space
     root.closeMenu()
     if (id === "rename") root.startRename(row)
     else if (id === "rename-tab") root.renameTab(row.id)
     else if (id === "icon") root.openIconPicker(row)
     else if (id === "clear-icon") root.run(["space", "icon", row.id, ""])
     else if (id === "close") root.run(["space", "close", row.id])
+    else if (String(id).indexOf("action:") === 0 && row) {
+      var actionId = String(id).slice(7)
+      var args = ["space", "action", actionId]
+      if (isTab) {
+        if (tabSpace) args.push("-s", tabSpace)
+        if (row.id) args.push("-t", row.id)
+      } else if (row.id) {
+        args.push("-s", row.id)
+      }
+      root.run(args)
+    }
   }
 
   // Opens the icon picker for a space, where its menu was.

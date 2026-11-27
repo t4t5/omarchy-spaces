@@ -36,6 +36,7 @@ Bind these actions rather than `space` commands: they stay the same if the comma
 | `spaces.next_space()` / `spaces.prev_space()` | Next / previous space, down and up the sidebar. They wrap around, with `home` at the top |
 | `spaces.new_space()` | New space, with a terminal in the folder you are in |
 | `spaces.rename_space()` | Rename the space you are in: type over its name in the sidebar, Enter to keep it, Escape to stop. An empty name has it called after its folder again |
+| `spaces.action(id)` | Run a custom action defined in `config.toml` (`[[actions.space]]` or `[[actions.tab]]`) |
 
 ## Tabs
 

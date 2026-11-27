@@ -41,7 +41,7 @@ use crate::restore;
 use crate::session;
 use crate::spaces::Store;
 use crate::state::Last;
-use crate::{events, sound, status, terminal, view};
+use crate::{events, hooks, sound, status, terminal, view};
 
 /// How often the active space's terminals' shells are read.
 const FAST: Duration = Duration::from_millis(200);
@@ -228,9 +228,13 @@ pub fn watch(sounds: bool) -> Result<()> {
             eprintln!("space: warning: {e:#}");
         }
         if let Some(hub) = &hub {
-            hub.publish(events::State::of(&snapshot, &live, &rows));
+            let emitted = hub.publish(events::State::of(&snapshot, &live, &rows));
+            if let Some(config) = &config {
+                hooks::fire(&config.hooks, &emitted);
+            }
         }
-        let json = serde_json::to_string(&view::state(&snapshot, &live, &rows))?;
+        let actions = config.as_ref().map(|c| &c.actions);
+        let json = serde_json::to_string(&view::state(&snapshot, &live, &rows, actions))?;
         if json != printed {
             // Nobody reading any more: done.
             if writeln!(out, "{json}").and_then(|()| out.flush()).is_err() {

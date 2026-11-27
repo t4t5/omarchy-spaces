@@ -11,6 +11,7 @@ How to use Spaces.
 - [Agent status](guide/agent-status.md): the dots and sounds
 - [Restoring your spaces](guide/restore.md): what comes back after a restart, and what's saved
 - [Configuration](guide/configuration.md): every setting
+- [Extending Spaces](guide/extending.md): recipes for git status, worktrees, hooks, custom actions, and sidebar widgets
 - [Command line](guide/cli.md): every `space` command, and JSON for scripts
 
 ## Internals

@@ -6,8 +6,12 @@
 //! It's between `space` and its plugin, and changes as what they show does.
 //! What scripts read is `space ls --json` (`list.rs`).
 
+use std::collections::BTreeMap;
+use std::path::Path;
+
 use serde::Serialize;
 
+use crate::config::{Action, Actions};
 use crate::live::{Live, Row, Screen, Snapshot};
 use crate::name;
 use crate::status::Status;
@@ -29,6 +33,47 @@ pub(crate) struct State<'a> {
     monitors: Vec<Monitor<'a>>,
     /// In the sidebar's order.
     spaces: Vec<Space<'a>>,
+    /// Custom space and tab menu actions from `config.toml`.
+    #[serde(skip_serializing_if = "ViewActions::is_empty")]
+    actions: ViewActions<'a>,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct ViewActions<'a> {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    space: Vec<ViewAction<'a>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tab: Vec<ViewAction<'a>>,
+}
+
+impl ViewActions<'_> {
+    fn is_empty(&self) -> bool {
+        self.space.is_empty() && self.tab.is_empty()
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ViewAction<'a> {
+    id: String,
+    label: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    when: Option<&'a str>,
+}
+
+impl<'a> ViewAction<'a> {
+    fn from(action: &'a Action) -> Self {
+        Self {
+            id: action.resolved_id(),
+            label: &action.label,
+            icon: action.icon.as_deref().filter(|s| !s.is_empty()),
+            hint: action.hint.as_deref().filter(|s| !s.is_empty()),
+            when: action.when.as_deref().filter(|s| !s.is_empty()),
+        }
+    }
 }
 
 /// A monitor, and the tabs its bar shows: those it has of the space it shows.
@@ -66,14 +111,30 @@ struct Space<'a> {
     label: &'a str,
     named: bool,
     icon: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder: Option<&'a Path>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    meta: &'a BTreeMap<String, serde_json::Value>,
     active: bool,
     windows: Option<u32>,
     left_at: u64,
     status: Option<Status>,
 }
 
-pub(crate) fn state<'a>(snapshot: &'a Snapshot, live: &Live, rows: &'a [Row]) -> State<'a> {
+pub(crate) fn state<'a>(
+    snapshot: &'a Snapshot,
+    live: &Live,
+    rows: &'a [Row],
+    actions: Option<&'a Actions>,
+) -> State<'a> {
     let focused = snapshot.screens.iter().find(|screen| screen.focused);
+    let actions = match actions {
+        Some(actions) => ViewActions {
+            space: actions.space.iter().map(ViewAction::from).collect(),
+            tab: actions.tab.iter().map(ViewAction::from).collect(),
+        },
+        None => ViewActions::default(),
+    };
     State {
         version: VERSION,
         space: env!("CARGO_PKG_VERSION"),
@@ -84,6 +145,7 @@ pub(crate) fn state<'a>(snapshot: &'a Snapshot, live: &Live, rows: &'a [Row]) ->
             .map(|screen| monitor(screen, snapshot, live, rows))
             .collect(),
         spaces: rows.iter().map(space).collect(),
+        actions,
     }
 }
 
@@ -121,6 +183,8 @@ fn space(row: &Row) -> Space<'_> {
         label: &row.label,
         named: row.named,
         icon: row.icon.as_deref(),
+        folder: row.folder.as_ref().map(|f| f.path()),
+        meta: &row.meta,
         active: row.active,
         windows: row.windows,
         left_at: row.left_at,
@@ -143,7 +207,7 @@ mod tests {
             shows: name::locate(-5, "chat"),
         });
         let live = Live::default();
-        let state = state(&snapshot, &live, &[]);
+        let state = state(&snapshot, &live, &[], None);
         assert_eq!(state.focused, Some("eDP-1"));
         assert_eq!(state.monitors[0].space, HOME);
         assert_eq!(state.monitors[0].tab, None);

@@ -4248,3 +4248,138 @@ fn new_tab_new_and_terminal_run_commands() {
     assert!(env.fails(&["tab", "new", "--", ""]).contains("empty"));
     assert!(env.fails(&["terminal", "--", ""]).contains("empty"));
 }
+
+#[test]
+fn actions_run_with_space_env_and_appear_in_watch() {
+    use std::time::Duration;
+
+    let env = Env::new();
+    let app = env.dir("app");
+    env.add_terminal("s1:1", &app);
+    env.set_active("s1:1");
+    env.ok(&[
+        "meta",
+        "set",
+        "-s",
+        "s1",
+        "git",
+        r#"{"branch":"main"}"#,
+        "--json",
+    ]);
+
+    let out = env.root.path().join("action.out");
+    let script = env.root.path().join("run-action.sh");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nprintf '%s|%s|%s|%s|%s|%s\\n' \"$SPACE_ACTION\" \"$SPACE_ID\" \"$SPACE_LABEL\" \"$SPACE_DIR\" \"$SPACE_META\" \"$(pwd)\" > {}\n",
+            out.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+    env.write_config(&format!(
+        r#"
+[[actions.space]]
+id = "inspect"
+label = "Inspect space"
+icon = "󰘬"
+when = "folder"
+command = "{}"
+
+[[actions.tab]]
+label = "Tab tool"
+command = "true"
+"#,
+        script.display()
+    ));
+
+    // `space watch` includes folder, meta, and configured actions.
+    let watch = Watch::start(&env);
+    let state = watch.next_state(Duration::from_secs(3));
+    let s1 = state["spaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == "s1")
+        .unwrap();
+    assert_eq!(s1["folder"], app.to_str().unwrap());
+    assert_eq!(s1["meta"]["git"]["branch"], "main");
+    assert_eq!(state["actions"]["space"][0]["id"], "inspect");
+    assert_eq!(state["actions"]["space"][0]["when"], "folder");
+    assert_eq!(state["actions"]["tab"][0]["id"], "tab-tool");
+    drop(watch);
+
+    // `space action` executes with SPACE_* env and cwd set to the space's folder.
+    env.ok(&["action", "inspect", "-s", "s1"]);
+    let written = fs::read_to_string(&out).unwrap();
+    assert_eq!(
+        written.trim(),
+        format!(
+            "inspect|s1|app|{}|{}|{}",
+            app.display(),
+            r#"{"git":{"branch":"main"}}"#,
+            app.display()
+        )
+    );
+
+    // Unknown action reports the configured ones.
+    let err = env.fails(&["action", "nope"]);
+    assert!(err.contains("no action 'nope'") && err.contains("inspect"));
+}
+
+#[test]
+fn hooks_fire_on_watch_events_and_not_on_initial_snapshot() {
+    use std::time::Duration;
+
+    let env = Env::new();
+    let one = env.dir("one");
+    let two = env.dir("two");
+    env.add_terminal("s1:1", &one);
+    env.set_active("s1:1");
+
+    let log = env.root.path().join("hooks.log");
+    let script = env.root.path().join("on-event.sh");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nline=$(cat)\nprintf '%s|%s|%s|%s\\n' \"$SPACE_EVENT\" \"$SPACE_ID\" \"$SPACE_DIR\" \"$line\" >> {}\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+    env.write_config(&format!(
+        r#"
+[hooks]
+"space.created" = "{}"
+"#,
+        script.display()
+    ));
+
+    let watch = Watch::start(&env);
+    let _ = watch.next_state(Duration::from_secs(3));
+    watch.joined(&env);
+    thread::sleep(Duration::from_millis(250));
+    assert!(!log.exists(), "initial snapshot must not fire hooks");
+
+    // Creating a new space fires `space.created`.
+    env.add_terminal("s2:1", &two);
+    env.event("openwindow>>2,s2:1,kitty,zsh");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !log.exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(30));
+    }
+    let contents = fs::read_to_string(&log).expect("space.created hook should run");
+    let line = contents.lines().next().unwrap();
+    let parts: Vec<&str> = line.splitn(4, '|').collect();
+    assert_eq!(parts[0], "space.created");
+    assert_eq!(parts[1], "s2");
+    assert_eq!(parts[2], two.to_str().unwrap());
+    let json: Value = serde_json::from_str(parts[3]).unwrap();
+    assert_eq!(json["type"], "space.created");
+    assert_eq!(json["space"]["id"], "s2");
+    drop(watch);
+}
