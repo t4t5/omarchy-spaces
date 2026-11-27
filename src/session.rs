@@ -65,6 +65,10 @@ pub struct Space {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub meta: BTreeMap<String, serde_json::Value>,
     /// Whether it's the space you were in.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub active: bool,

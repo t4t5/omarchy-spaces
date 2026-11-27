@@ -2,7 +2,7 @@
 //! apart from what the plugin reads (`view.rs`), which changes as the bar and
 //! the sidebar do, and from how spaces are kept.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
@@ -14,97 +14,103 @@ use crate::tabs;
 
 /// Goes up when it changes in a way that breaks a script made for the last
 /// one; a new field doesn't.
-const VERSION: u32 = 1;
+pub(crate) const VERSION: u32 = 1;
 
-#[derive(Debug, Serialize)]
-pub(crate) struct List<'a> {
-    version: u32,
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) struct List {
+    pub version: u32,
     /// `home` first, then in the sidebar's order.
-    spaces: Vec<Space<'a>>,
+    pub spaces: Vec<Space>,
 }
 
-#[derive(Debug, Serialize)]
-struct Space<'a> {
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) struct Space {
     /// What commands take it by.
-    id: &'a str,
+    pub id: String,
     /// What to call it: the name you gave it, or its folder's.
-    label: &'a str,
+    pub label: String,
     /// Whether you gave it the name; otherwise it follows its folder.
-    named: bool,
+    pub named: bool,
     /// The glyph or emoji you picked for its badge, if any.
-    icon: Option<&'a str>,
+    pub icon: Option<String>,
+    /// A short one-line note on the space, if any.
+    pub note: Option<String>,
+    /// Opaque external metadata attached to the space.
+    pub meta: BTreeMap<String, serde_json::Value>,
     /// The checkout (or folder) its terminal is in. `null` for `home`, and
     /// for a space that never had a terminal.
     #[serde(flatten, serialize_with = "folder::or_null")]
-    folder: Option<Folder>,
+    pub folder: Option<Folder>,
     /// Whether it's the one you are in.
-    active: bool,
+    pub active: bool,
     /// `null` when Hyprland can't be reached.
-    windows: Option<u32>,
+    pub windows: Option<u32>,
     /// What most needs you among the agents in its windows, if any is
     /// working, done or waiting.
-    status: Option<Status>,
+    pub status: Option<Status>,
     /// When it was last left, in Unix milliseconds, or `null` if never.
-    left_at: Option<u64>,
+    pub left_at: Option<u64>,
     /// Its tabs, monitor by monitor, in the order they show. `null` when
     /// Hyprland can't be reached.
-    tabs: Option<Vec<Tab>>,
+    pub tabs: Option<Vec<Tab>>,
     /// Its terminal windows, oldest first.
-    terminals: Vec<Terminal<'a>>,
+    pub terminals: Vec<Terminal>,
 }
 
-#[derive(Debug, Serialize)]
-struct Tab {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct Tab {
     /// What commands take it by. Not to be taken apart, and another once the
     /// tab is moved.
-    id: String,
+    pub id: String,
     /// The number it shows on its monitor, 1-10. `null` for none.
-    slot: Option<u8>,
+    pub slot: Option<u8>,
     /// The monitor it's on, by name.
-    monitor: String,
+    pub monitor: String,
     /// The name you gave it, else what its last used window is called. Empty
     /// for an empty tab, and for one of `home`'s that you haven't named.
-    label: String,
+    pub label: String,
     /// Whether you gave it the name.
-    named: bool,
+    pub named: bool,
     /// Whether its monitor shows it.
-    shown: bool,
-    windows: u32,
+    pub shown: bool,
+    pub windows: u32,
     /// What most needs you among the agents in its windows.
-    status: Option<Status>,
+    pub status: Option<Status>,
 }
 
-#[derive(Debug, Serialize)]
-struct Terminal<'a> {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct Terminal {
     /// Hyprland's address for the window: `0x55a4...`.
-    address: &'a str,
+    pub address: String,
     /// The tab it's on, by its id. `null` on a workspace without a number.
-    tab: Option<String>,
+    pub tab: Option<String>,
     /// The folder its shell is in.
     #[serde(flatten)]
-    folder: &'a Folder,
+    pub folder: Folder,
     /// What runs in it (`claude`, `nvim`), or `null` at the prompt.
-    program: Option<&'a str>,
+    pub program: Option<String>,
     /// What its tab shows: the program, or else the folder's name.
-    label: &'a str,
+    pub label: String,
     /// What the agent in it is doing, if one reports it and isn't idle.
-    status: Option<Status>,
+    pub status: Option<Status>,
 }
 
 /// The spaces in `rows`, with their tabs if Hyprland can be reached.
-pub(crate) fn list<'a>(rows: &'a [Row], hyprland: Option<(&Snapshot, &Live)>) -> List<'a> {
+pub(crate) fn list(rows: &[Row], hyprland: Option<(&Snapshot, &Live)>) -> List {
     List {
         version: VERSION,
         spaces: rows.iter().map(|row| space(row, hyprland)).collect(),
     }
 }
 
-fn space<'a>(row: &'a Row, hyprland: Option<(&Snapshot, &Live)>) -> Space<'a> {
+fn space(row: &Row, hyprland: Option<(&Snapshot, &Live)>) -> Space {
     Space {
-        id: &row.id,
-        label: &row.label,
+        id: row.id.clone(),
+        label: row.label.clone(),
         named: row.named,
-        icon: row.icon.as_deref(),
+        icon: row.icon.clone(),
+        note: row.note.clone(),
+        meta: row.meta.clone(),
         folder: row.folder.clone(),
         active: row.active,
         windows: row.windows,
@@ -138,13 +144,13 @@ fn tabs_of(row: &Row, snapshot: &Snapshot, live: &Live) -> Vec<Tab> {
         .collect()
 }
 
-fn terminal<'a>(space: &str, terminal: &'a TerminalRow) -> Terminal<'a> {
+fn terminal(space: &str, terminal: &TerminalRow) -> Terminal {
     Terminal {
-        address: &terminal.address,
+        address: terminal.address.clone(),
         tab: terminal.tab.map(|key| name::tab_id(space, key)),
-        folder: &terminal.folder,
-        program: terminal.program.as_deref(),
-        label: &terminal.label,
+        folder: terminal.folder.clone(),
+        program: terminal.program.clone(),
+        label: terminal.label.clone(),
         status: terminal.status,
     }
 }

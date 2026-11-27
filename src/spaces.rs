@@ -37,6 +37,14 @@ pub struct Entry {
     /// path, in place of the letters of its name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// A short one-line note or status summary for this space (for example, a
+    /// checkpoint written by you or an agent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Opaque metadata owned by external scripts, plugins, or agents. Persisted
+    /// across restarts and left untouched by Spaces.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub meta: BTreeMap<String, serde_json::Value>,
     /// The folder of the terminal it follows, last time it was seen; where
     /// it started before that. New terminals in it open here.
     #[serde(flatten)]
@@ -91,6 +99,18 @@ impl Store {
     /// Reads it, to look at.
     pub fn load(state_dir: &Path) -> Result<Self> {
         Self::read(state_dir, Err(anyhow!("it was only read")))
+    }
+
+    /// An in-memory copy that can never be saved, for read-only inspection.
+    pub fn detached(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            spaces: self.spaces.clone(),
+            next: self.next,
+            read: self.read.clone(),
+            read_next: self.read_next,
+            lock: Err(anyhow!("it was only read")),
+        }
     }
 
     /// Reads it, to change and save: other processes wait to do the same
@@ -196,6 +216,47 @@ pub fn clean_name(raw: &str) -> Result<Option<String>> {
         bail!("'{name}' is longer than 64 characters");
     }
     Ok((!name.is_empty()).then(|| name.to_string()))
+}
+
+/// A short note on a space: any text, trimmed, on one line. Empty clears it.
+pub fn clean_note(raw: &str) -> Result<Option<String>> {
+    let note = raw.trim();
+    if note.chars().any(char::is_control) {
+        bail!("a note has to fit on one line");
+    }
+    if note.chars().count() > 256 {
+        bail!("a note can be at most 256 characters");
+    }
+    Ok((!note.is_empty()).then(|| note.to_string()))
+}
+
+/// Maximum number of metadata keys stored on one space.
+pub const MAX_META_KEYS: usize = 64;
+/// Maximum serialized byte size of one metadata value.
+pub const MAX_META_VALUE_BYTES: usize = 64 * 1024;
+
+/// A metadata key: non-empty, no whitespace or control characters.
+pub fn clean_meta_key(raw: &str) -> Result<String> {
+    let key = raw.trim();
+    if key.is_empty() {
+        bail!("a metadata key can't be empty");
+    }
+    if key.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        bail!("metadata key '{key}' can't contain spaces or control characters");
+    }
+    if key.chars().count() > 128 {
+        bail!("metadata key '{key}' is longer than 128 characters");
+    }
+    Ok(key.to_string())
+}
+
+/// Ensures a metadata value fits within the per-value size cap.
+pub fn validate_meta_value(value: &serde_json::Value) -> Result<()> {
+    let len = serde_json::to_string(value)?.len();
+    if len > MAX_META_VALUE_BYTES {
+        bail!("metadata value is larger than {MAX_META_VALUE_BYTES} bytes");
+    }
+    Ok(())
 }
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "svg", "jpg", "jpeg", "webp", "ico"];
@@ -429,5 +490,58 @@ mod tests {
         let folder = dir.path().join("dir.png");
         std::fs::create_dir(&folder).unwrap();
         assert!(clean_icon(&folder.to_string_lossy()).is_err());
+    }
+
+    #[test]
+    fn cleans_notes_and_metadata_and_round_trips() {
+        assert_eq!(
+            clean_note("  PR #412 ready  ").unwrap(),
+            Some("PR #412 ready".into())
+        );
+        assert_eq!(clean_note("   ").unwrap(), None);
+        assert!(clean_note("line1\nline2").is_err());
+        assert!(clean_note(&"x".repeat(257)).is_err());
+
+        assert_eq!(clean_meta_key(" linear.issue ").unwrap(), "linear.issue");
+        assert!(clean_meta_key("").is_err());
+        assert!(clean_meta_key("a b").is_err());
+        assert!(clean_meta_key("a\nb").is_err());
+        assert!(clean_meta_key(&"k".repeat(129)).is_err());
+
+        assert!(validate_meta_value(&serde_json::json!({"ok": true})).is_ok());
+        assert!(
+            validate_meta_value(&serde_json::Value::String(
+                "x".repeat(MAX_META_VALUE_BYTES + 1)
+            ))
+            .is_err()
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::lock(dir.path()).unwrap();
+        let entry = store.entry("s1");
+        entry.note = Some("waiting on CI".into());
+        entry.meta.insert("pr".into(), serde_json::json!(412));
+        store.save().unwrap();
+        drop(store);
+
+        let loaded = Store::load(dir.path()).unwrap();
+        assert_eq!(
+            loaded.get("s1").unwrap().note.as_deref(),
+            Some("waiting on CI")
+        );
+        assert_eq!(loaded.get("s1").unwrap().meta["pr"], serde_json::json!(412));
+
+        let mut detached = loaded.detached();
+        detached.entry("s1").note = Some("mutated".into());
+        assert!(detached.save().is_err());
+        assert_eq!(
+            Store::load(dir.path())
+                .unwrap()
+                .get("s1")
+                .unwrap()
+                .note
+                .as_deref(),
+            Some("waiting on CI")
+        );
     }
 }

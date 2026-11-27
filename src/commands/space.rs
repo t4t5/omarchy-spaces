@@ -4,9 +4,14 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
+use serde::Serialize;
 
-use super::{focus, forget, fresh_space, moved, open_terminal_then, remember, take_turn};
+use super::{
+    focus, forget, fresh_space, moved, open_terminal_then, remember, resolve_dir, take_turn,
+    target_space,
+};
+use crate::context;
 use crate::folder::Folder;
 use crate::hypr::{self, Hypr};
 use crate::list;
@@ -17,40 +22,152 @@ use crate::paths;
 use crate::spaces::{self, Store};
 use crate::state::{self, Last};
 
+/// Options for `space new`.
+#[derive(Debug, Default)]
+pub struct NewOptions {
+    pub dir: Option<PathBuf>,
+    pub name: Option<String>,
+    pub note: Option<String>,
+    pub silent: bool,
+    pub json: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CreatedSpace {
+    version: u32,
+    id: String,
+    tab: String,
+    dir: PathBuf,
+    window: Option<String>,
+}
+
 /// `space new [dir]`: a new space in `dir`, by default the folder you are
 /// in, with a terminal open there. It is called after the folder that
 /// terminal is in, and follows it.
-pub fn new(dir: Option<PathBuf>) -> Result<()> {
+pub fn new(opts: NewOptions) -> Result<()> {
+    let custom_name = match opts.name {
+        Some(raw) => spaces::clean_name(&raw)?,
+        None => None,
+    };
+    let custom_note = match opts.note {
+        Some(raw) => spaces::clean_note(&raw)?,
+        None => None,
+    };
     let hypr = Hypr::from_env()?;
-    let dir = match dir {
-        Some(dir) => {
-            let cwd = std::env::current_dir().context("can't read the current folder")?;
-            let dir = cwd.join(dir);
-            let dir = std::fs::canonicalize(&dir)
-                .with_context(|| format!("no folder {}", paths::tilde(&dir)))?;
-            if !dir.is_dir() {
-                bail!("{} is not a folder", paths::tilde(&dir));
-            }
-            dir
-        }
-        None => live::here_folder(&hypr)?,
+    let dir = match opts.dir {
+        Some(dir) => resolve_dir(dir)?,
+        None => live::caller_folder(&hypr)?.0,
     };
 
     // On the monitor you are on.
     let first = name::key_in(Blocks::load().of(&hypr.active_workspace()?), 1);
     let id = fresh_space(&hypr, first, None)?;
     let workspace = name::workspace_name(&id, first);
-    open_terminal_then(&hypr, &dir, &workspace, || switch(&hypr, &id))?;
+    let env = [(context::SPACE_ID_ENV, id.as_str())];
+    let window = open_terminal_then(&hypr, &dir, &workspace, &env, || {
+        if opts.silent {
+            Ok(())
+        } else {
+            switch(&hypr, &id)
+        }
+    })?;
 
     // The watcher may have seen the space by now, and made its entry.
     let mut store = Store::lock(&paths::state_dir())?;
     let entry = store.entry(&id);
     entry.folder.get_or_insert(Folder::here(&dir));
+    if let Some(name) = custom_name {
+        entry.name = Some(name);
+    }
+    if let Some(note) = custom_note {
+        entry.note = Some(note);
+    }
     if entry.order == 0 {
         entry.order = state::now();
     }
     store.save()?;
-    println!("Opened a space in {}", paths::tilde(&dir));
+    if opts.json {
+        let mut out = std::io::stdout().lock();
+        serde_json::to_writer_pretty(
+            &mut out,
+            &CreatedSpace {
+                version: 1,
+                tab: name::tab_id(&id, first),
+                id,
+                dir,
+                window,
+            },
+        )?;
+        writeln!(out)?;
+    } else {
+        println!("Opened a space in {}", paths::tilde(&dir));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct FocusedPlace {
+    space: String,
+    tab: Option<String>,
+    window: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CurrentPlace {
+    version: u32,
+    space: String,
+    tab: Option<String>,
+    window: Option<String>,
+    source: context::Source,
+    focused: FocusedPlace,
+}
+
+/// `space current [--json]`: the space this command was invoked from (matching
+/// its live Hyprland window in `/proc`, else `SPACE_ID`, else the focused
+/// space).
+pub fn current(json: bool) -> Result<()> {
+    let hypr = Hypr::from_env()?;
+    let (snapshot, live) = live::inspect(&hypr)?;
+    let focused_space = snapshot.active().unwrap_or(HOME).to_string();
+    let focused_tab = snapshot
+        .active_tab()
+        .map(|key| name::tab_id(&focused_space, key));
+    let focused_window = hypr.active_window_address().ok().flatten();
+
+    let (space, tab, window, source) = match context::resolve(&snapshot, Some(&live)) {
+        Some(caller) => {
+            let tab = caller.tab_id();
+            (caller.space, tab, caller.window, caller.source)
+        }
+        None => (
+            focused_space.clone(),
+            focused_tab.clone(),
+            focused_window.clone(),
+            context::Source::Focused,
+        ),
+    };
+
+    let mut out = std::io::stdout().lock();
+    if json {
+        serde_json::to_writer_pretty(
+            &mut out,
+            &CurrentPlace {
+                version: 1,
+                space,
+                tab,
+                window,
+                source,
+                focused: FocusedPlace {
+                    space: focused_space,
+                    tab: focused_tab,
+                    window: focused_window,
+                },
+            },
+        )?;
+        writeln!(out)?;
+    } else {
+        writeln!(out, "{space}")?;
+    }
     Ok(())
 }
 
@@ -157,19 +274,13 @@ pub(super) fn landing_tab(
     Ok(strip.at(1))
 }
 
-/// `space rename [space] <name>`: gives a space, the active one by default,
-/// a name that stays. An empty name has it called after its folder again.
+/// `space rename [space] <name>`: gives a space, the caller's or active one
+/// by default, a name that stays. An empty name has it called after its folder
+/// again.
 pub fn rename(target: Option<String>, new_name: String) -> Result<()> {
     let hypr = Hypr::from_env()?;
-    let (mut store, rows, _) = live::lock_rows(Some(&hypr))?;
-    let id = match target {
-        Some(target) => live::resolve(&rows, &target)?,
-        None => rows
-            .iter()
-            .find(|r| r.active)
-            .map(|r| r.id.clone())
-            .unwrap_or_else(|| HOME.to_string()),
-    };
+    let (mut store, rows, seen) = live::lock_rows(Some(&hypr))?;
+    let id = target_space(target, &rows, seen.as_ref())?;
     if id == HOME {
         bail!("'home' is the plain workspaces; it can't be renamed");
     }
@@ -184,20 +295,13 @@ pub fn rename(target: Option<String>, new_name: String) -> Result<()> {
     Ok(())
 }
 
-/// `space icon [space] <icon>`: gives a space, the active one by default, a
-/// glyph or an emoji to show on its badge in place of its letters. An empty
-/// icon has it show its letters again.
+/// `space icon [space] <icon>`: gives a space, the caller's or active one by
+/// default, a glyph or an emoji to show on its badge in place of its letters.
+/// An empty icon has it show its letters again.
 pub fn icon(target: Option<String>, new_icon: String) -> Result<()> {
     let hypr = Hypr::from_env()?;
-    let (mut store, rows, _) = live::lock_rows(Some(&hypr))?;
-    let id = match target {
-        Some(target) => live::resolve(&rows, &target)?,
-        None => rows
-            .iter()
-            .find(|r| r.active)
-            .map(|r| r.id.clone())
-            .unwrap_or_else(|| HOME.to_string()),
-    };
+    let (mut store, rows, seen) = live::lock_rows(Some(&hypr))?;
+    let id = target_space(target, &rows, seen.as_ref())?;
     if id == HOME {
         bail!("'home' is the plain workspaces; it can't have an icon");
     }
@@ -214,6 +318,96 @@ pub fn icon(target: Option<String>, new_icon: String) -> Result<()> {
         }
         Some(new_icon) => println!("Gave the space the icon {new_icon}"),
         None => println!("The space shows its letters again"),
+    }
+    Ok(())
+}
+
+/// `space note [space] <text>`: attaches a short one-line note to a space, the
+/// caller's or active one by default. An empty note clears it.
+pub fn note(target: Option<String>, text: String) -> Result<()> {
+    let hypr = Hypr::from_env()?;
+    let (mut store, rows, seen) = live::lock_rows(Some(&hypr))?;
+    let id = target_space(target, &rows, seen.as_ref())?;
+    if id == HOME {
+        bail!("'home' is the plain workspaces; it can't have a note");
+    }
+    let note = spaces::clean_note(&text)?;
+
+    store.entry(&id).note = note.clone();
+    store.save()?;
+    match note {
+        Some(note) => println!("Noted '{note}' on the space"),
+        None => println!("Cleared the space's note"),
+    }
+    Ok(())
+}
+
+/// `space meta get [--space <space>] [key]`: prints a space's metadata object
+/// or one key's JSON value.
+pub fn meta_get(space: Option<String>, key: Option<String>) -> Result<()> {
+    let hypr = Hypr::from_env()?;
+    let (rows, seen) = live::load_rows(Some(&hypr))?;
+    let id = target_space(space, &rows, seen.as_ref())?;
+    let row = rows
+        .iter()
+        .find(|r| r.id == id)
+        .ok_or_else(|| anyhow::anyhow!("no space '{id}'"))?;
+    let mut out = std::io::stdout().lock();
+    match key {
+        None => {
+            serde_json::to_writer_pretty(&mut out, &row.meta)?;
+            writeln!(out)?;
+        }
+        Some(raw) => {
+            let key = spaces::clean_meta_key(&raw)?;
+            let value = row
+                .meta
+                .get(&key)
+                .ok_or_else(|| anyhow::anyhow!("no metadata key '{key}' on space '{id}'"))?;
+            serde_json::to_writer_pretty(&mut out, value)?;
+            writeln!(out)?;
+        }
+    }
+    Ok(())
+}
+
+/// `space meta set [--space <space>] <key> <value> [--json]`: sets an opaque
+/// metadata key on a space (as a JSON string unless `--json` is passed).
+pub fn meta_set(space: Option<String>, key: String, value: String, json: bool) -> Result<()> {
+    let key = spaces::clean_meta_key(&key)?;
+    let parsed = if json {
+        serde_json::from_str(&value)
+            .map_err(|e| anyhow::anyhow!("invalid JSON for metadata key '{key}': {e}"))?
+    } else {
+        serde_json::Value::String(value)
+    };
+    spaces::validate_meta_value(&parsed)?;
+
+    let hypr = Hypr::from_env()?;
+    let (mut store, rows, seen) = live::lock_rows(Some(&hypr))?;
+    let id = target_space(space, &rows, seen.as_ref())?;
+    let meta = &mut store.entry(&id).meta;
+    if !meta.contains_key(&key) && meta.len() >= spaces::MAX_META_KEYS {
+        bail!(
+            "space '{id}' already has {} metadata keys",
+            spaces::MAX_META_KEYS
+        );
+    }
+    meta.insert(key, parsed);
+    store.save()?;
+    Ok(())
+}
+
+/// `space meta rm [--space <space>] <key>`: removes a metadata key from a
+/// space (no-op if not present).
+pub fn meta_rm(space: Option<String>, key: String) -> Result<()> {
+    let key = spaces::clean_meta_key(&key)?;
+    let hypr = Hypr::from_env()?;
+    let (mut store, rows, seen) = live::lock_rows(Some(&hypr))?;
+    let id = target_space(space, &rows, seen.as_ref())?;
+    if let Some(entry) = store.spaces.get_mut(&id) {
+        entry.meta.remove(&key);
+        store.save()?;
     }
     Ok(())
 }
@@ -259,18 +453,15 @@ fn restamp(store: &mut Store, order: &[String]) {
     }
 }
 
-/// `space close [space]`: closes every window of a space, the active one by
-/// default, which ends it. If you are in it, you go back to the space you
-/// were in before, or `home`. Each app is asked, as `super+w` asks it, so it
-/// can still stop to save.
+/// `space close [space]`: closes every window of a space, the caller's or
+/// active one by default, which ends it. If you are in it, you go back to the
+/// space you were in before, or `home`. Each app is asked, as `super+w` asks
+/// it, so it can still stop to save.
 pub fn close(target: Option<String>) -> Result<()> {
     let hypr = Hypr::from_env()?;
-    let (rows, live) = live::load_rows(Some(&hypr))?;
-    let (_, live) = live.expect("read from Hyprland");
-    let id = match target {
-        Some(target) => live::resolve(&rows, &target)?,
-        None => live.active.clone().unwrap_or_else(|| HOME.to_string()),
-    };
+    let (rows, seen) = live::load_rows(Some(&hypr))?;
+    let id = target_space(target, &rows, seen.as_ref())?;
+    let (_, live) = seen.expect("read from Hyprland");
     if id == HOME {
         bail!("'home' is the plain workspaces; close its windows one by one");
     }

@@ -335,15 +335,23 @@ pub fn shell_quote(value: &str) -> String {
 /// that folder with `SPACES_DIR` set to it. It runs on its own, outliving
 /// `space`.
 pub fn launch(command: &str, dir: &Path) -> Result<()> {
-    Command::new("sh")
-        .arg("-c")
+    launch_env(command, dir, &[])
+}
+
+/// Like `launch`, with extra environment variables set on the launched process.
+pub fn launch_env(command: &str, dir: &Path, env: &[(&str, &str)]) -> Result<()> {
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c")
         .arg(command)
         .current_dir(dir)
         .env("SPACES_DIR", dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+        .stderr(Stdio::null());
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
+    cmd.spawn()
         .with_context(|| format!("can't open a terminal with `{command}`"))?;
     Ok(())
 }

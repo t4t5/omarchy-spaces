@@ -164,6 +164,11 @@ impl Snapshot {
     pub fn spaces(&self) -> BTreeSet<String> {
         space_ids(&self.workspaces, &self.windows)
     }
+
+    #[cfg(test)]
+    pub(crate) fn add_space_for_test(&mut self, id: &str) {
+        self.workspaces.entry(id.to_string()).or_default().insert(1);
+    }
 }
 
 /// The spaces with a workspace or a window, `home` aside.
@@ -327,12 +332,16 @@ pub(crate) fn live_from(
 /// What Hyprland said, and what was made of it.
 pub(crate) type Seen = (Snapshot, Live);
 
-fn live(hypr: &Hypr) -> Result<Seen> {
+pub(crate) fn inspect(hypr: &Hypr) -> Result<Seen> {
     let snapshot = snapshot(hypr)?;
     let mut live = live_from(&snapshot, |window| terminal::shell(window.place, None));
-    // Only `watch` follows agents, to know which are done, and seen.
+    // Only `watch` and `events` follow agents, to know which are done, and seen.
     live.set_statuses(|_| true);
     Ok((snapshot, live))
+}
+
+fn live(hypr: &Hypr) -> Result<Seen> {
+    inspect(hypr)
 }
 
 /// One space, with what's known about it. What's printed of it is up to
@@ -347,6 +356,10 @@ pub struct Row {
     pub named: bool,
     /// The glyph or emoji you picked for its badge, if any.
     pub icon: Option<String>,
+    /// A short one-line note on the space, if any.
+    pub note: Option<String>,
+    /// Opaque external metadata attached to the space.
+    pub meta: BTreeMap<String, serde_json::Value>,
     /// The checkout (or folder) its terminal is in. `None` for `home`, and
     /// for a space that never had a terminal.
     pub folder: Option<Folder>,
@@ -474,6 +487,8 @@ pub(crate) fn rows(store: &mut Store, live: Option<&Live>, last: &Last) -> Vec<R
                label: String,
                named: bool,
                icon: Option<String>,
+               note: Option<String>,
+               meta: BTreeMap<String, serde_json::Value>,
                folder: Option<Folder>,
                tabs| {
         let visit = last.get(id);
@@ -482,6 +497,8 @@ pub(crate) fn rows(store: &mut Store, live: Option<&Live>, last: &Last) -> Vec<R
             label,
             named,
             icon,
+            note,
+            meta,
             folder,
             active: live.is_some_and(|l| l.active.as_deref() == Some(id)),
             windows: live.map(|l| l.windows.get(id).copied().unwrap_or(0)),
@@ -508,8 +525,19 @@ pub(crate) fn rows(store: &mut Store, live: Option<&Live>, last: &Last) -> Vec<R
         }
     };
 
-    let home_tabs = store.get(HOME).map(|e| e.tabs.clone()).unwrap_or_default();
-    let mut out = vec![row(HOME, HOME.to_string(), false, None, None, home_tabs)];
+    let home_entry = store.get(HOME);
+    let home_tabs = home_entry.map(|e| e.tabs.clone()).unwrap_or_default();
+    let home_meta = home_entry.map(|e| e.meta.clone()).unwrap_or_default();
+    let mut out = vec![row(
+        HOME,
+        HOME.to_string(),
+        false,
+        None,
+        None,
+        home_meta,
+        None,
+        home_tabs,
+    )];
     for id in ids {
         let terminals = live
             .and_then(|l| l.terminals.get(&id))
@@ -523,10 +551,18 @@ pub(crate) fn rows(store: &mut Store, live: Option<&Live>, last: &Last) -> Vec<R
             None => describe(&id, &mut entry.clone(), &[]),
         };
         let icon = entry.icon.clone();
+        let note = entry.note.clone();
+        let meta = entry.meta.clone();
         let tabs = entry.tabs.clone();
-        out.push(row(&id, label, named, icon, folder, tabs));
+        out.push(row(&id, label, named, icon, note, meta, folder, tabs));
     }
     out
+}
+
+/// Like `rows`, without modifying `store` or touching disk.
+pub(crate) fn rows_readonly(store: &Store, live: Option<&Live>, last: &Last) -> Vec<Row> {
+    let mut copy = store.detached();
+    rows(&mut copy, live, last)
 }
 
 /// Reads the spaces and saves what changed about them. A failure to save is
@@ -611,6 +647,29 @@ pub(crate) fn here_folder(hypr: &Hypr) -> Result<PathBuf> {
         .and_then(|entry| Some(entry.folder.as_ref()?.path()))
         .filter(|dir| dir.is_dir())
         .map_or_else(paths::home, Path::to_path_buf))
+}
+
+/// The folder for a command without an explicit `--dir`: the caller's terminal
+/// (or space) if run from inside a space window, else `here_folder`. Also
+/// returns the resolved space id when known.
+pub(crate) fn caller_folder(hypr: &Hypr) -> Result<(PathBuf, Option<String>)> {
+    let (snapshot, live) = inspect(hypr)?;
+    if let Some(caller) = crate::context::resolve(&snapshot, Some(&live)) {
+        if let Some(window) = &caller.window
+            && let Some(dir) = live
+                .terminals
+                .get(&caller.space)
+                .and_then(|list| list.iter().find(|t| &t.address == window))
+                .map(|t| t.shell.folder.path())
+                .filter(|dir| dir.is_dir())
+        {
+            return Ok((dir.to_path_buf(), Some(caller.space)));
+        }
+        let dir = space_folder(hypr, &caller.space)?;
+        return Ok((dir, Some(caller.space)));
+    }
+    let space = snapshot.active().map(str::to_string);
+    Ok((here_folder(hypr)?, space))
 }
 
 /// The folder a space's new tab opens in: the space's own, its checkout's
@@ -704,6 +763,8 @@ mod tests {
             label: label.into(),
             named: false,
             icon: None,
+            note: None,
+            meta: BTreeMap::new(),
             folder: None,
             active: false,
             windows: None,

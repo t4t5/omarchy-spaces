@@ -4,7 +4,7 @@ use std::process::{Command, ExitCode, Stdio};
 
 use clap::{Parser, Subcommand};
 
-use omarchy_spaces::{commands, name, shell, watch};
+use omarchy_spaces::{commands, events, name, shell, watch};
 
 /// Spaces for Hyprland: a set of tabs for each thing you work on.
 #[derive(Parser)]
@@ -17,11 +17,30 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Open a new space with a terminal, in the folder you are in (the
-    /// focused terminal's, else the active space's, else home). It is called
-    /// after the folder its terminal is in.
+    /// caller's or focused terminal's, else the active space's, else home).
+    /// It is called after the folder its terminal is in unless `--name` is set.
     New {
         /// Open it here instead.
         dir: Option<PathBuf>,
+        /// Give the new space a name right away.
+        #[arg(long)]
+        name: Option<String>,
+        /// Attach a one-line note to the new space.
+        #[arg(long)]
+        note: Option<String>,
+        /// Open the space in the background without switching focus to it.
+        #[arg(long)]
+        silent: bool,
+        /// Print the created space as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the space this command was called from (via its live Hyprland
+    /// window, else `SPACE_ID`, else the focused space).
+    Current {
+        /// Print JSON with caller space/tab/window, source, and focused place.
+        #[arg(long)]
+        json: bool,
     },
     /// Go to a space where you left it.
     Go {
@@ -47,9 +66,9 @@ enum Cmd {
         #[arg(value_name = "NAME")]
         second: Option<String>,
     },
-    /// Give a space, the active one unless you say which, a glyph, an emoji, or
-    /// an image file for its badge, in place of its letters. An empty icon
-    /// brings the letters back.
+    /// Give a space, the caller's or active one unless you say which, a glyph,
+    /// an emoji, or an image file for its badge, in place of its letters. An
+    /// empty icon brings the letters back.
     #[command(override_usage = "space icon [SPACE] <ICON>")]
     Icon {
         #[arg(value_name = "SPACE")]
@@ -57,6 +76,18 @@ enum Cmd {
         #[arg(value_name = "ICON")]
         second: Option<String>,
     },
+    /// Attach a short one-line note to a space, the caller's or active one
+    /// unless you say which. An empty note clears it.
+    #[command(override_usage = "space note [SPACE] <TEXT>")]
+    Note {
+        #[arg(value_name = "SPACE")]
+        first: String,
+        #[arg(value_name = "TEXT")]
+        second: Option<String>,
+    },
+    /// Read, set, or remove opaque external metadata on a space.
+    #[command(subcommand)]
+    Meta(MetaCmd),
     /// Move a space up or down the sidebar, to a position counting from 1
     /// below `home`, which stays first.
     Reorder {
@@ -77,8 +108,22 @@ enum Cmd {
         #[arg(long, hide = true)]
         auto: bool,
     },
-    /// Open a terminal in the folder you are in, or the active space's.
-    Terminal,
+    /// Open a terminal in the folder you are in, or the target space's.
+    Terminal {
+        /// Open in this space's folder (defaults to caller's or active space).
+        #[arg(short, long)]
+        space: Option<String>,
+    },
+    /// Stream space, tab, focus, and agent-status changes as NDJSON lines.
+    /// Strictly read-only, safe for scripts, hooks, and agents.
+    Events {
+        /// Only emit these comma-separated event types (e.g. space.created,status.changed).
+        #[arg(long = "type", value_name = "TYPES")]
+        types: Option<Vec<String>>,
+        /// Skip the initial `snapshot` line.
+        #[arg(long)]
+        no_snapshot: bool,
+    },
     /// Print what the plugin shows, as a line of JSON each time it changes. For
     /// the plugin alone, it changes with it: scripts read `space ls --json`.
     Watch {
@@ -108,10 +153,56 @@ enum Cmd {
 }
 
 #[derive(Subcommand)]
+enum MetaCmd {
+    /// Print all metadata for a space, or one key's JSON value.
+    Get {
+        /// Space id or name (defaults to caller's or active space).
+        #[arg(short, long)]
+        space: Option<String>,
+        /// Metadata key to read; omit for the whole object.
+        key: Option<String>,
+    },
+    /// Set a metadata key on a space (as a JSON string unless `--json` is set).
+    Set {
+        /// Space id or name (defaults to caller's or active space).
+        #[arg(short, long)]
+        space: Option<String>,
+        key: String,
+        value: String,
+        /// Parse VALUE as JSON instead of storing it as a plain string.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove a metadata key from a space.
+    Rm {
+        /// Space id or name (defaults to caller's or active space).
+        #[arg(short, long)]
+        space: Option<String>,
+        key: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum TabCmd {
-    /// Open a new tab in the active space, with a terminal in its folder; in
-    /// `home`, an empty one.
-    New,
+    /// Open a new tab in the target space (caller's or active space by default),
+    /// with a terminal in its folder; in `home`, an empty one.
+    New {
+        /// Space id or name (defaults to caller's or active space).
+        #[arg(short, long)]
+        space: Option<String>,
+        /// Open the tab's terminal in this folder instead of the space's.
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Give the new tab a name right away.
+        #[arg(long)]
+        name: Option<String>,
+        /// Open the tab in the background without switching focus to it.
+        #[arg(long)]
+        silent: bool,
+        /// Print the created tab as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Go to tab N of the active space on this monitor, or a tab by its id.
     Go {
         #[arg(value_name = "N", value_parser = tab)]
@@ -193,7 +284,19 @@ fn space_target(raw: &str) -> Result<commands::SpaceTarget, String> {
 
 fn run_tab(command: TabCmd) -> anyhow::Result<()> {
     match command {
-        TabCmd::New => commands::go_to_tab(commands::Target::New),
+        TabCmd::New {
+            space,
+            dir,
+            name,
+            silent,
+            json,
+        } => commands::new_tab_cmd(commands::NewTabOptions {
+            space,
+            dir,
+            name,
+            silent,
+            json,
+        }),
         TabCmd::Go { tab } => match name::parse_slot(&tab) {
             Some(n) => commands::go_to_tab(commands::Target::Slot(n)),
             None => commands::go_to_named_tab(tab),
@@ -223,11 +326,30 @@ fn main() -> ExitCode {
     // tabs' numbers show it.
     let unseen = !matches!(
         cli.command,
-        Cmd::Ls { .. } | Cmd::Watch { .. } | Cmd::Shell | Cmd::Renumber
+        Cmd::Ls { .. }
+            | Cmd::Current { .. }
+            | Cmd::Events { .. }
+            | Cmd::Meta(MetaCmd::Get { .. })
+            | Cmd::Watch { .. }
+            | Cmd::Shell
+            | Cmd::Renumber
     ) && !std::io::stderr().is_terminal();
 
     let result = match cli.command {
-        Cmd::New { dir } => commands::new(dir),
+        Cmd::New {
+            dir,
+            name,
+            note,
+            silent,
+            json,
+        } => commands::new(commands::NewOptions {
+            dir,
+            name,
+            note,
+            silent,
+            json,
+        }),
+        Cmd::Current { json } => commands::current(json),
         Cmd::Go { space } => commands::go(space),
         Cmd::Next => commands::step(true),
         Cmd::Prev => commands::step(false),
@@ -240,10 +362,23 @@ fn main() -> ExitCode {
             Some(icon) => commands::icon(Some(first), icon),
             None => commands::icon(None, first),
         },
+        Cmd::Note { first, second } => match second {
+            Some(text) => commands::note(Some(first), text),
+            None => commands::note(None, first),
+        },
+        Cmd::Meta(MetaCmd::Get { space, key }) => commands::meta_get(space, key),
+        Cmd::Meta(MetaCmd::Set {
+            space,
+            key,
+            value,
+            json,
+        }) => commands::meta_set(space, key, value, json),
+        Cmd::Meta(MetaCmd::Rm { space, key }) => commands::meta_rm(space, key),
         Cmd::Reorder { space, position } => commands::reorder(space, position),
         Cmd::Close { space } => commands::close(space),
         Cmd::Restore { file, auto } => commands::restore(file, auto),
-        Cmd::Terminal => commands::open_terminal(),
+        Cmd::Terminal { space } => commands::open_terminal(space),
+        Cmd::Events { types, no_snapshot } => events::events(types, no_snapshot),
         Cmd::Watch { sounds } => watch::watch(sounds),
         Cmd::Shell => shell::shell(),
         Cmd::Emptied { workspace } => commands::emptied(&workspace),

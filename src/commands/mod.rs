@@ -7,17 +7,21 @@ pub mod tab;
 pub mod window;
 
 pub use crate::restore::restore;
-pub use space::{close, go, icon, ls, new, rename, reorder, step};
+pub use space::{
+    NewOptions, close, current, go, icon, ls, meta_get, meta_rm, meta_set, new, note, rename,
+    reorder, step,
+};
 pub use tab::{
-    Target, close_tab, emptied, go_to_named_tab, go_to_tab, rename_tab, renumber, reorder_tab,
-    send_tab,
+    NewTabOptions, Target, close_tab, emptied, go_to_named_tab, go_to_tab, new_tab_cmd, rename_tab,
+    renumber, reorder_tab, send_tab,
 };
 pub use window::{send_window, window_to_tab};
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 
+use crate::context;
 use crate::hypr::{self, Hypr};
 use crate::launch;
 use crate::live;
@@ -51,14 +55,61 @@ impl SpaceTarget {
     }
 }
 
-/// `space terminal`: a terminal in the folder you are in, so an empty tab of
-/// a space opens on its folder rather than home.
-pub fn open_terminal() -> Result<()> {
-    let dir = match Hypr::from_env() {
-        Ok(hypr) => live::here_folder(&hypr)?,
-        Err(_) => paths::home(),
+/// `space terminal [--space <space>]`: a terminal in the folder you are in,
+/// or the target space's, so an empty tab opens on its folder rather than home.
+pub fn open_terminal(space: Option<String>) -> Result<()> {
+    let (dir, space_id) = match Hypr::from_env() {
+        Ok(hypr) => match space {
+            Some(target) => {
+                let (rows, _) = live::load_rows(Some(&hypr))?;
+                let id = live::resolve(&rows, &target)?;
+                let dir = live::space_folder(&hypr, &id)?;
+                (dir, Some(id))
+            }
+            None => live::caller_folder(&hypr)?,
+        },
+        Err(e) if space.is_some() => return Err(e),
+        Err(_) => (paths::home(), None),
     };
-    terminal::launch(&launch::terminal(), &dir)
+    let env: Vec<(&str, &str)> = space_id
+        .as_deref()
+        .map(|id| vec![(context::SPACE_ID_ENV, id)])
+        .unwrap_or_default();
+    terminal::launch_env(&launch::terminal(), &dir, &env)
+}
+
+/// Resolves an optional space argument: explicit target, else the caller's
+/// space (from `/proc` or `SPACE_ID`), else the focused space.
+pub(super) fn target_space(
+    target: Option<String>,
+    rows: &[live::Row],
+    seen: Option<&live::Seen>,
+) -> Result<String> {
+    if let Some(target) = target {
+        return live::resolve(rows, &target);
+    }
+    if let Some((snapshot, live)) = seen
+        && let Some(caller) = context::resolve(snapshot, Some(live))
+    {
+        return Ok(caller.space);
+    }
+    Ok(rows
+        .iter()
+        .find(|r| r.active)
+        .map(|r| r.id.clone())
+        .unwrap_or_else(|| HOME.to_string()))
+}
+
+/// Canonicalizes a directory argument and verifies it exists and is a folder.
+pub(super) fn resolve_dir(dir: PathBuf) -> Result<PathBuf> {
+    let cwd = std::env::current_dir().context("can't read the current folder")?;
+    let dir = cwd.join(dir);
+    let dir =
+        std::fs::canonicalize(&dir).with_context(|| format!("no folder {}", paths::tilde(&dir)))?;
+    if !dir.is_dir() {
+        bail!("{} is not a folder", paths::tilde(&dir));
+    }
+    Ok(dir)
 }
 
 /// An id for a new space whose first terminal opens on tab `key`, reserved
@@ -89,10 +140,11 @@ pub(super) fn open_terminal_then(
     hypr: &Hypr,
     dir: &Path,
     workspace: &str,
+    env: &[(&str, &str)],
     arrive: impl FnOnce() -> Result<()>,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let events = hypr.events().ok();
-    let command = terminal::command_in(&launch::terminal(), dir, &[]);
+    let command = terminal::command_in(&launch::terminal(), dir, env);
     let on = hypr::selector_for(&hypr.workspaces().unwrap_or_default(), workspace);
     let placed = hypr
         .dispatch(&hypr::exec_on(&command, &format!("{on} silent")))
@@ -101,7 +153,7 @@ pub(super) fn open_terminal_then(
         (true, Some(events)) => wait_for_window(&events, workspace, OPEN_TIMEOUT, |_| true),
         (true, None) => None,
         (false, _) => {
-            terminal::launch(&launch::terminal(), dir)?;
+            terminal::launch_env(&launch::terminal(), dir, env)?;
             None
         }
     };
@@ -109,12 +161,12 @@ pub(super) fn open_terminal_then(
         reserve::release(&paths::reserved_dir(), workspace);
     }
     arrive()?;
-    if let Some(address) = window
-        && let Err(e) = hypr.dispatch(&hypr::animate_again(&address))
+    if let Some(address) = &window
+        && let Err(e) = hypr.dispatch(&hypr::animate_again(address))
     {
         eprintln!("space: warning: {e:#}");
     }
-    Ok(())
+    Ok(window)
 }
 
 /// Waits until a window that `ours` accepts by its address opens on

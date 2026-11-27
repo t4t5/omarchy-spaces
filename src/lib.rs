@@ -7,6 +7,8 @@ pub mod agent;
 pub mod browser;
 pub mod commands;
 pub mod config;
+pub mod context;
+pub mod events;
 pub mod folder;
 pub mod hypr;
 pub mod launch;

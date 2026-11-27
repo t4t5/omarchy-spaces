@@ -113,6 +113,8 @@ pub(crate) fn session_of(
                 id: (row.id != HOME).then(|| row.id.clone()),
                 name: row.named.then(|| row.label.clone()),
                 icon: row.icon.clone(),
+                note: row.note.clone(),
+                meta: row.meta.clone(),
                 active: row.active,
                 last,
                 tabs: row.tabs.clone(),
@@ -517,9 +519,16 @@ impl Restoring {
         for (tab, name) in &saved.tabs {
             entry.tabs.entry(*tab).or_insert_with(|| name.clone());
         }
+        for (key, value) in &saved.meta {
+            entry
+                .meta
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
         if !saved.home {
             entry.name = entry.name.take().or_else(|| saved.name.clone());
             entry.icon = entry.icon.take().or_else(|| saved.icon.clone());
+            entry.note = entry.note.take().or_else(|| saved.note.clone());
             entry.folder = entry.folder.take().or_else(|| saved.folder.clone());
             entry.order = self.order;
         }
@@ -546,7 +555,7 @@ fn reopen_terminal(
     let workspace = session_workspace(id, tab);
     let events = hypr.events()?;
     hypr.dispatch(&hypr::exec_on(
-        &restored_command(config, terminal, token),
+        &restored_command(config, id, terminal, token),
         &format!("{} silent", live_selector(hypr, id, tab)),
     ))?;
     opening()?;
@@ -614,7 +623,12 @@ fn open_browser(
 }
 
 /// The command for a saved terminal.
-fn restored_command(config: &Config, terminal: &session::Terminal, token: &str) -> String {
+fn restored_command(
+    config: &Config,
+    id: &str,
+    terminal: &session::Terminal,
+    token: &str,
+) -> String {
     // A folder that's gone gives way to the nearest one still there.
     let dir = terminal
         .folder
@@ -629,7 +643,7 @@ fn restored_command(config: &Config, terminal: &session::Terminal, token: &str) 
         .filter(|c| config.restore.agents && dir == c.folder)
         .filter(|c| c.command().is_some())
         .map(|c| format!("{} {}", c.agent, c.id));
-    let mut env = vec![(shell::RESTORE, token)];
+    let mut env = vec![(shell::RESTORE, token), (crate::context::SPACE_ID_ENV, id)];
     let command = match &resume {
         Some(resume) => {
             env.push((shell::RESUME, resume));

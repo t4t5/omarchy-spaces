@@ -289,7 +289,7 @@ fn refresh(hypr: &Hypr, snapshot: &mut live::Snapshot) {
 
 /// What a Hyprland event can change about the spaces, least to most.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Change {
+pub(crate) enum Change {
     Nothing,
     /// A title changed, which terminals do on `cd` and as a command starts:
     /// read their shells.
@@ -301,7 +301,7 @@ enum Change {
 }
 
 impl Change {
-    fn of(event: &str) -> Self {
+    pub(crate) fn of(event: &str) -> Self {
         let name = event.split_once(">>").map_or(event, |(name, _)| name);
         match name {
             "windowtitle" | "windowtitlev2" => Change::Folders,
@@ -317,7 +317,7 @@ impl Change {
 }
 
 /// Notes the focused window from Hyprland's events.
-fn follow(event: &str, focused: &mut Option<String>) {
+pub(crate) fn follow(event: &str, focused: &mut Option<String>) {
     if let Some(("activewindowv2", data)) = event.split_once(">>") {
         // The events give addresses without Hyprland's `0x`.
         let data = data.trim().trim_start_matches("0x");
@@ -334,14 +334,14 @@ fn read_config() -> Option<Config> {
 
 /// When a file last changed, and its size, to notice another `space`
 /// writing it.
-fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
+pub(crate) fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
     let meta = std::fs::metadata(path).ok()?;
     Some((meta.modified().ok()?, meta.len()))
 }
 
 /// Whether this program's binary has been replaced since it started, as
 /// `cargo install` does: the kernel marks the running one deleted.
-fn replaced() -> bool {
+pub(crate) fn replaced() -> bool {
     std::fs::read_link("/proc/self/exe")
         .is_ok_and(|exe| exe.to_string_lossy().ends_with(" (deleted)"))
 }

@@ -2,14 +2,18 @@
 //! `tab reorder`, `tab close`, `tab send`, and `emptied`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use serde::Serialize;
 
 use super::space::{neighbour, switch};
 use super::{
     SpaceTarget, focus, forget, fresh_key, hold_tabs, live_selector, moved, open_terminal_then,
-    remember, session_selector, session_workspace, take_turn,
+    remember, resolve_dir, session_selector, session_workspace, take_turn, target_space,
 };
+use crate::context;
 use crate::hypr::{self, Hypr};
 use crate::layout;
 use crate::live::{self, Row, Snapshot, SpaceWindow};
@@ -35,6 +39,187 @@ pub enum Target {
     New,
     Next,
     Prev,
+}
+
+/// Options for `space tab new`.
+#[derive(Debug, Default)]
+pub struct NewTabOptions {
+    pub space: Option<String>,
+    pub dir: Option<PathBuf>,
+    pub name: Option<String>,
+    pub silent: bool,
+    pub json: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CreatedTab {
+    version: u32,
+    space: String,
+    id: String,
+    slot: u8,
+    dir: Option<PathBuf>,
+    window: Option<String>,
+}
+
+/// `space tab new`: opens a new tab in the target space (explicit `--space`,
+/// else the caller's space, else the active space).
+pub fn new_tab_cmd(opts: NewTabOptions) -> Result<()> {
+    let custom_name = match opts.name {
+        Some(raw) => spaces::clean_name(&raw)?,
+        None => None,
+    };
+    let explicit_dir = match opts.dir {
+        Some(dir) => Some(resolve_dir(dir)?),
+        None => None,
+    };
+
+    let hypr = Hypr::from_env()?;
+    let (rows, seen) = live::load_rows(Some(&hypr))?;
+    let space = target_space(opts.space.clone(), &rows, seen.as_ref())?;
+    let active = hypr.active_workspace()?;
+    let here = name::locate(active.id, &active.name);
+
+    if space == HOME {
+        if !opts.silent && explicit_dir.is_none() && custom_name.is_none() && !opts.json {
+            let workspaces = hypr.workspaces()?;
+            let strip = Strip::new(&workspaces, HOME, &active, &Blocks::load());
+            let key = new_tab_in(&strip, [])?;
+            if here.key() != Some(key) {
+                focus(&hypr, HOME, key)?;
+                remember(HOME, key);
+            }
+            return Ok(());
+        }
+        let workspaces = hypr.workspaces()?;
+        let strip = Strip::new(&workspaces, HOME, &active, &Blocks::load());
+        let key = new_tab_in(&strip, [])?;
+        let (dir, window) = if opts.silent || explicit_dir.is_some() {
+            let dir = match explicit_dir {
+                Some(dir) => dir,
+                None => live::here_folder(&hypr)?,
+            };
+            let env = [(context::SPACE_ID_ENV, HOME)];
+            let window = open_terminal_then(&hypr, &dir, &key.to_string(), &env, || {
+                if opts.silent {
+                    Ok(())
+                } else {
+                    focus(&hypr, HOME, key)
+                }
+            })?;
+            (Some(dir), window)
+        } else {
+            if here.key() != Some(key) {
+                focus(&hypr, HOME, key)?;
+            }
+            (None, None)
+        };
+        if !opts.silent {
+            remember(HOME, key);
+        }
+        if let Some(name) = custom_name {
+            let mut store = Store::lock(&paths::state_dir())?;
+            store.entry(HOME).tabs.insert(key, name);
+            store.save()?;
+        }
+        if opts.json {
+            let mut out = std::io::stdout().lock();
+            serde_json::to_writer_pretty(
+                &mut out,
+                &CreatedTab {
+                    version: 1,
+                    space: HOME.to_string(),
+                    id: name::tab_id(HOME, key),
+                    slot: name::slot_of(key),
+                    dir,
+                    window,
+                },
+            )?;
+            writeln!(out)?;
+        }
+        return Ok(());
+    }
+
+    let dir = match explicit_dir {
+        Some(dir) => dir,
+        None => live::space_folder(&hypr, &space)?,
+    };
+    let blocks = Blocks::load();
+    let allow_reuse_active = here.space() == space && !opts.silent && opts.space.is_none();
+    let (_, key) = reserve::reserve(&paths::reserved_dir(), |reserved| {
+        let workspaces = hypr.workspaces()?;
+        let opening: Vec<u8> = reserved
+            .iter()
+            .filter(|(of, _)| of == &space)
+            .map(|(_, key)| *key)
+            .collect();
+        let empty = workspaces
+            .iter()
+            .any(|ws| ws.name == active.name && ws.windows == 0);
+        if allow_reuse_active
+            && let Some(key) = here.key()
+            && empty
+            && !opening.contains(&key)
+        {
+            return Ok((space.clone(), key));
+        }
+        let anchor_ws = if here.space() == space {
+            &active
+        } else {
+            workspaces
+                .iter()
+                .find(|ws| name::locate(ws.id, &ws.name).space() == space)
+                .unwrap_or(&active)
+        };
+        let strip = Strip::new(&workspaces, &space, anchor_ws, &blocks);
+        let taken = open_in(&workspaces, &space).into_iter().chain(opening);
+        Ok((space.clone(), new_tab_in(&strip, taken)?))
+    })?;
+    let workspace = name::workspace_name(&space, key);
+    let env = [(context::SPACE_ID_ENV, space.as_str())];
+    let window = open_terminal_then(&hypr, &dir, &workspace, &env, || {
+        if opts.silent {
+            return Ok(());
+        }
+        if here.space() != space
+            && let Some(left_at) = here.key()
+        {
+            remember(here.space(), left_at);
+        }
+        focus(&hypr, &space, key)
+    })?;
+    if !opts.silent {
+        remember(&space, key);
+    }
+    if let Some(name) = custom_name {
+        let mut store = Store::lock(&paths::state_dir())?;
+        store.entry(&space).tabs.insert(key, name);
+        store.save()?;
+    }
+    if opts.json {
+        let workspaces = hypr.workspaces().unwrap_or_default();
+        let on = workspaces
+            .iter()
+            .find(|ws| is_tab(&space, key, ws.id, &ws.name))
+            .unwrap_or(&active);
+        let slot = Strip::new(&workspaces, &space, on, &blocks)
+            .slot(key)
+            .filter(|slot| *slot > 0)
+            .unwrap_or(name::slot_of(key));
+        let mut out = std::io::stdout().lock();
+        serde_json::to_writer_pretty(
+            &mut out,
+            &CreatedTab {
+                version: 1,
+                id: name::tab_id(&space, key),
+                space,
+                slot,
+                dir: Some(dir),
+                window,
+            },
+        )?;
+        writeln!(out)?;
+    }
+    Ok(())
 }
 
 /// `space tab go <n>` and `space tab new`, `next` and `prev`: a tab of the
@@ -75,10 +260,10 @@ pub fn go_to_tab(target: Target) -> Result<()> {
 /// `space tab go <id>`: a tab of any space, on whichever monitor it is.
 pub fn go_to_named_tab(tab: String) -> Result<()> {
     let hypr = Hypr::from_env()?;
-    let (rows, _) = live::load_rows(Some(&hypr))?;
+    let (rows, seen) = live::load_rows(Some(&hypr))?;
     let active = hypr.active_workspace()?;
     let here = name::locate(active.id, &active.name);
-    let Tab { id, key, .. } = tab_or_active(&hypr, &rows, Some(&tab), &active)?;
+    let Tab { id, key, .. } = tab_or_active(&hypr, &rows, seen.as_ref(), Some(&tab), &active)?;
     if is_tab(&id, key, active.id, &active.name) {
         return Ok(());
     }
@@ -120,7 +305,8 @@ fn new_tab(hypr: &Hypr, active: &hypr::Workspace, here: &Location) -> Result<()>
         Ok((space.to_string(), new_tab_in(&strip, taken)?))
     })?;
     let workspace = name::workspace_name(space, key);
-    open_terminal_then(hypr, &dir, &workspace, || focus(hypr, space, key))?;
+    let env = [(context::SPACE_ID_ENV, space)];
+    open_terminal_then(hypr, &dir, &workspace, &env, || focus(hypr, space, key))?;
     remember(space, key);
     Ok(())
 }
@@ -149,12 +335,12 @@ fn step_tab(forward: bool, open: &[u8], current: Option<u8>) -> Option<u8> {
 pub fn reorder_tab(tab: String, position: usize) -> Result<()> {
     let hypr = Hypr::from_env()?;
     let _tabs = hold_tabs()?;
-    let (mut store, rows, _) = live::lock_rows(Some(&hypr))?;
+    let (mut store, rows, seen) = live::lock_rows(Some(&hypr))?;
     if position == 0 {
         bail!("positions start at 1, the space's first tab");
     }
     let active = hypr.active_workspace()?;
-    let Tab { id, key, slot } = tab_or_active(&hypr, &rows, Some(&tab), &active)?;
+    let Tab { id, key, slot } = tab_or_active(&hypr, &rows, seen.as_ref(), Some(&tab), &active)?;
     // The tabs there are, as the bar shows them: its monitor's.
     let workspaces = hypr.workspaces()?;
     let on = workspaces
@@ -329,21 +515,34 @@ fn shown_id(ws_id: i64, ws_name: &str) -> String {
     }
 }
 
-/// The tab given by its id, or with none, the one you are on.
+/// The tab given by its id, or with none, the caller's tab if invoked from
+/// inside a space window, else the one you are on.
 fn tab_or_active(
     hypr: &Hypr,
     rows: &[Row],
+    seen: Option<&live::Seen>,
     tab: Option<&str>,
     active: &hypr::Workspace,
 ) -> Result<Tab> {
     let here = name::locate(active.id, &active.name);
-    let (space, key) = match tab {
-        Some(tab) => name::parse_tab_id(tab).with_context(|| {
-            format!("'{tab}' isn't a tab: give its id, as `space ls --json` shows it")
-        })?,
-        None => (here.space(), here.key().context("you aren't on a tab")?),
+    let (id, key) = match tab {
+        Some(tab) => {
+            let (space, key) = name::parse_tab_id(tab).with_context(|| {
+                format!("'{tab}' isn't a tab: give its id, as `space ls --json` shows it")
+            })?;
+            (space.to_string(), key)
+        }
+        None => match seen
+            .and_then(|(snapshot, live)| context::resolve(snapshot, Some(live)))
+            .and_then(|caller| Some((caller.space, caller.tab_key?)))
+        {
+            Some(caller) => caller,
+            None => (
+                here.space().to_string(),
+                here.key().context("you aren't on a tab")?,
+            ),
+        },
     };
-    let id = space.to_string();
     let row = rows.iter().find(|r| r.id == id);
     let open = row.and_then(|r| r.workspaces.as_deref());
     if !open.is_some_and(|open| open.contains(&key)) {
@@ -364,9 +563,10 @@ fn tab_or_active(
 /// it follow its window again, or, in `home`, show just its number.
 pub fn rename_tab(tab: Option<String>, new_name: String) -> Result<()> {
     let hypr = Hypr::from_env()?;
-    let (mut store, rows, _) = live::lock_rows(Some(&hypr))?;
+    let (mut store, rows, seen) = live::lock_rows(Some(&hypr))?;
     let active = hypr.active_workspace()?;
-    let Tab { id, key, slot } = tab_or_active(&hypr, &rows, tab.as_deref(), &active)?;
+    let Tab { id, key, slot } =
+        tab_or_active(&hypr, &rows, seen.as_ref(), tab.as_deref(), &active)?;
     let new_name = spaces::clean_name(&new_name)?;
 
     let tabs = &mut store.entry(&id).tabs;
@@ -390,9 +590,10 @@ pub fn rename_tab(tab: Option<String>, new_name: String) -> Result<()> {
 pub fn close_tab(tab: Option<String>) -> Result<()> {
     let hypr = Hypr::from_env()?;
     let _tabs = hold_tabs()?;
-    let (rows, _) = live::load_rows(Some(&hypr))?;
+    let (rows, seen) = live::load_rows(Some(&hypr))?;
     let active = hypr.active_workspace()?;
-    let Tab { id, key, slot } = tab_or_active(&hypr, &rows, tab.as_deref(), &active)?;
+    let Tab { id, key, slot } =
+        tab_or_active(&hypr, &rows, seen.as_ref(), tab.as_deref(), &active)?;
     let on_tab = |ws_id, ws_name: &str| is_tab(&id, key, ws_id, ws_name);
     let windows: Vec<String> = hypr
         .clients()?
@@ -451,10 +652,11 @@ pub fn send_tab(tab: Option<String>, to: SpaceTarget) -> Result<()> {
         .then(take_turn)
         .transpose()?;
     let _tabs = hold_tabs()?;
-    let (rows, _) = live::load_rows(Some(&hypr))?;
+    let (rows, seen) = live::load_rows(Some(&hypr))?;
     let active = hypr.active_workspace()?;
     let here = name::locate(active.id, &active.name);
-    let Tab { id, key, slot } = tab_or_active(&hypr, &rows, tab.as_deref(), &active)?;
+    let Tab { id, key, slot } =
+        tab_or_active(&hypr, &rows, seen.as_ref(), tab.as_deref(), &active)?;
     let to = match to {
         SpaceTarget::Named(target) => live::resolve(&rows, &target)?,
         SpaceTarget::Next | SpaceTarget::Prev => match neighbour(&rows, to == SpaceTarget::Next) {
