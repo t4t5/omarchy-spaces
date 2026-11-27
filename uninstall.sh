@@ -70,6 +70,15 @@ main() {
   if [[ -L $link && $(readlink "$link") == "$plugin/"* ]]; then
     rm -f "$link"
   fi
+  local skill_link
+  for skill_link in \
+    "$HOME/.agents/skills/omarchy-spaces" \
+    "$HOME/.claude/skills/omarchy-spaces" \
+    "$HOME/.gemini/config/skills/omarchy-spaces"; do
+    if [[ -L $skill_link && $(readlink "$skill_link") == "$plugin/"* ]]; then
+      rm -f "$skill_link"
+    fi
+  done
   hyprctl reload
   bring_windows_home
   restore_bar

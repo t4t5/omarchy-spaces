@@ -21,6 +21,7 @@ setup:
     omarchy plugin disable omarchy.menu
     omarchy plugin disable omarchy.workspaces
     ln -sfn {{justfile_directory()}}/hypr/omarchy-spaces.lua ~/.config/hypr/omarchy-spaces.lua
+    for d in ~/.agents/skills ~/.claude/skills ~/.gemini/config/skills; do [ -d "${d%/*}" ] && [ ! -e "$d/omarchy-spaces" ] && mkdir -p "$d" && ln -sfn ~/.config/omarchy/plugins/com.t4t5.spaces/skills/omarchy-spaces "$d/omarchy-spaces" || true; done
     grep -qs 'require("hypr.omarchy-spaces")' ~/.config/hypr/*.lua || echo 'if package.searchpath("hypr.omarchy-spaces", package.path) then require("hypr.omarchy-spaces").bind_tab_keys() end' >> ~/.config/hypr/bindings.lua
     # Hyprland doesn't notice the link by itself.
     hyprctl reload

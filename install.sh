@@ -77,6 +77,17 @@ setup() {
     hyprctl reload >/dev/null || true
   fi
 
+  # Link the agent skill into any installed agent's skill directory.
+  if [[ -d "$PWD/skills/omarchy-spaces" ]]; then
+    local skill_dir
+    for skill_dir in "$HOME/.agents/skills" "$HOME/.claude/skills" "$HOME/.gemini/config/skills"; do
+      if [[ -d "${skill_dir%/*}" && ! -e "$skill_dir/omarchy-spaces" ]]; then
+        mkdir -p "$skill_dir"
+        ln -sfn "$PWD/skills/omarchy-spaces" "$skill_dir/omarchy-spaces"
+      fi
+    done
+  fi
+
   local said
   if ! is_space "$(command -v space || true)" && ! is_space "$bin/space"; then
     if ! said=$(./install.sh 2>&1); then

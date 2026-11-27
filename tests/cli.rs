@@ -3400,14 +3400,19 @@ fn install_setup_replaces_omarchys_menu_and_workspaces_once() {
     let home = tmp.path().join("home");
     let installed = home.join(".local/bin/space");
     let link = home.join(".config/hypr/omarchy-spaces.lua");
+    let claude_skill = home.join(".claude/skills/omarchy-spaces");
+    let gemini_skill = home.join(".gemini/config/skills/omarchy-spaces");
+    let agents_skill = home.join(".agents/skills/omarchy-spaces");
     let replaced = home.join(".local/state/omarchy-spaces/bar");
     let plugin = tmp.path().join("plugin");
     fs::create_dir_all(plugin.join("hypr")).unwrap();
+    fs::create_dir_all(plugin.join("skills/omarchy-spaces")).unwrap();
     for file in [
         "install.sh",
         "uninstall.sh",
         "manifest.json",
         "hypr/omarchy-spaces.lua",
+        "skills/omarchy-spaces/SKILL.md",
     ] {
         fs::copy(root.join(file), plugin.join(file)).unwrap();
     }
@@ -3466,7 +3471,9 @@ fn install_setup_replaces_omarchys_menu_and_workspaces_once() {
     assert_eq!(did, "");
     assert!(!home.exists());
 
-    // Offline: the keys have what they load, but the bar isn't brought up.
+    // Offline: the keys and skills for present agents have what they load, but the bar isn't brought up.
+    fs::create_dir_all(home.join(".claude")).unwrap();
+    fs::create_dir_all(home.join(".gemini/config")).unwrap();
     let (out, did) = run(&plugin, &["--setup"]);
     assert!(!out.status.success());
     assert!(did.contains("Couldn't install"), "{did}");
@@ -3476,6 +3483,15 @@ fn install_setup_replaces_omarchys_menu_and_workspaces_once() {
         fs::read_link(&link).unwrap(),
         plugin.join("hypr/omarchy-spaces.lua")
     );
+    assert_eq!(
+        fs::read_link(&claude_skill).unwrap(),
+        plugin.join("skills/omarchy-spaces")
+    );
+    assert_eq!(
+        fs::read_link(&gemini_skill).unwrap(),
+        plugin.join("skills/omarchy-spaces")
+    );
+    assert!(!agents_skill.exists(), "doesn't create absent agent dirs");
 
     let package = Command::new(root.join("scripts/package.sh"))
         .arg(env!("CARGO_BIN_EXE_space"))
@@ -3516,11 +3532,16 @@ fn install_setup_replaces_omarchys_menu_and_workspaces_once() {
     assert!(!out.status.success());
     assert_eq!(did, "");
 
-    // A Hyprland file that's the user's own stays.
+    // A Hyprland file or skill that's the user's own stays.
     fs::remove_file(&link).unwrap();
     fs::write(&link, "-- mine\n").unwrap();
+    fs::remove_file(&claude_skill).unwrap();
+    fs::create_dir_all(&claude_skill).unwrap();
+    fs::write(claude_skill.join("SKILL.md"), "mine\n").unwrap();
     assert!(run(&plugin, &["--setup"]).0.status.success());
     assert_eq!(fs::read_to_string(&link).unwrap(), "-- mine\n");
+    assert!(!claude_skill.is_symlink());
+    assert_eq!(fs::read_to_string(claude_skill.join("SKILL.md")).unwrap(), "mine\n");
 }
 
 #[test]
@@ -3530,11 +3551,12 @@ fn uninstall_undoes_the_setup_once_the_plugin_is_gone() {
     let home = tmp.path().join("home");
     let plugin = home.join(".config/omarchy/plugins/com.t4t5.spaces");
     let link = home.join(".config/hypr/omarchy-spaces.lua");
+    let skill_link = home.join(".claude/skills/omarchy-spaces");
     let config = home.join(".config/omarchy/shell.json");
     let state = home.join(".local/state/omarchy-spaces");
     let space = home.join(".local/bin/space");
     let mine = home.join(".config/omarchy-spaces/config.toml");
-    for dir in [&link, &config, &space, &mine] {
+    for dir in [&link, &skill_link, &config, &space, &mine] {
         fs::create_dir_all(dir.parent().unwrap()).unwrap();
     }
     fs::create_dir_all(&state).unwrap();
@@ -3566,10 +3588,13 @@ fn uninstall_undoes_the_setup_once_the_plugin_is_gone() {
     let built = "#!/bin/sh\n# omarchy-spaces\n";
     let set_up = || {
         fs::create_dir_all(plugin.join("hypr")).unwrap();
+        fs::create_dir_all(plugin.join("skills/omarchy-spaces")).unwrap();
         fs::create_dir_all(&state).unwrap();
         fs::copy(root.join("uninstall.sh"), state.join("uninstall.sh")).unwrap();
         let _ = fs::remove_file(&link);
         std::os::unix::fs::symlink(plugin.join("hypr/omarchy-spaces.lua"), &link).unwrap();
+        let _ = fs::remove_file(&skill_link);
+        std::os::unix::fs::symlink(plugin.join("skills/omarchy-spaces"), &skill_link).unwrap();
         fs::write(&space, built).unwrap();
         let sum = Command::new("sha256sum").arg(&space).output().unwrap();
         let sum = String::from_utf8(sum.stdout).unwrap();
@@ -3626,7 +3651,7 @@ fn uninstall_undoes_the_setup_once_the_plugin_is_gone() {
     assert_eq!(did.matches("window.move").count(), 2, "{did}");
     assert!(did.contains("hl.dsp.focus({ workspace = \"2\" })"), "{did}");
     assert!(did.ends_with(put_back), "{did}");
-    assert!(!link.is_symlink() && !space.exists() && !state.exists());
+    assert!(!link.is_symlink() && !skill_link.is_symlink() && !space.exists() && !state.exists());
     assert!(mine.exists());
 
     // But not what it didn't make, nor a bar that kept Omarchy's.
