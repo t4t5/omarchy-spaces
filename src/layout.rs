@@ -258,7 +258,10 @@ impl Tab {
              local now = hl.get_active_workspace()\n\
              if at and (not now or now.name ~= at.name) then\n\
              local to = (at.id or 0) > 0 and tostring(at.id) or \"name:\" .. at.name\n\
+             local found = hl.get_workspace(to)\n\
+             if not (found and found.name == at.name) then\n\
              for _, w in ipairs(hl.get_workspaces()) do if w.name == at.name then to = w end end\n\
+             end\n\
              go(hl.dsp.focus({ workspace = to }))\n\
              end\n\
              if before and not (now and at and now.name == at.name) then focus(before) end\n\

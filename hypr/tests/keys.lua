@@ -119,12 +119,8 @@ spaces.move_window_to_tab(4, false)()
 equal(table.concat(omarchy, ", "), "focus 3, move 4 false")
 equal(#dispatched, 0)
 
--- What a dispatch is aimed at: a workspace there is, by its name, or the
--- selector that makes one.
-local function at(workspace)
-  return type(workspace) == "table" and workspace.name or workspace
-end
-
+-- A tab its selector finds goes by that, never by the workspace itself: 0.56
+-- takes no workspace in a dispatch, and goes to workspace 1 instead.
 -- In a space, its tabs.
 active = { name = "s1:1" }
 tabs("s1", 10)
@@ -134,9 +130,9 @@ spaces.move_window_to_tab(4)()
 spaces.move_window_to_tab(5, false)()
 equal(#omarchy, 2)
 equal(dispatched[1][1], "focus")
-equal(at(dispatched[1][2].workspace), "s1:3")
+equal(dispatched[1][2].workspace, "name:s1:3")
 equal(dispatched[2][1], "window.move")
-equal(at(dispatched[2][2].workspace), "s1:4")
+equal(dispatched[2][2].workspace, "name:s1:4")
 equal(dispatched[2][2].follow, true)
 equal(dispatched[3][2].follow, false)
 
@@ -154,10 +150,10 @@ bound["SUPER + code:10"]()
 bound["SUPER + SHIFT + code:19"]()
 bound["SUPER + SHIFT + ALT + code:11"]()
 local silent, follow, go = table.remove(dispatched), table.remove(dispatched), table.remove(dispatched)
-equal(at(go[2].workspace), "s1:1")
-equal(at(follow[2].workspace), "s1:10")
+equal(go[2].workspace, "name:s1:1")
+equal(follow[2].workspace, "name:s1:10")
 equal(follow[2].follow, true)
-equal(at(silent[2].workspace), "s1:2")
+equal(silent[2].workspace, "name:s1:2")
 equal(silent[2].follow, false)
 
 -- A workspace something else named is `home`'s, as Omarchy has it.
@@ -169,7 +165,7 @@ end
 equal(#dispatched, 3)
 active = { name = "s12:13" }
 spaces.go_to_tab(6)()
-equal(at(dispatched[4][2].workspace), "s12:6")
+equal(dispatched[4][2].workspace, "name:s12:6")
 
 -- Past the last tab, a new one after it: tabs have no gaps.
 workspaces = {}
@@ -180,7 +176,7 @@ spaces.move_window_to_tab(9)()
 equal(dispatched[5][2].workspace, "name:s1:3")
 equal(dispatched[6][2].workspace, "name:s1:3")
 spaces.go_to_tab(2)()
-equal(at(dispatched[7][2].workspace), "s1:2")
+equal(dispatched[7][2].workspace, "name:s1:2")
 
 -- Tabs `space renumber` renamed: the workspaces made as s1:2 and s1:3 are named
 -- s1:1 and s1:2 now. The keys go to them by their names, as the bar shows

@@ -81,9 +81,15 @@ local function workspace_named(name)
   end
 end
 
--- What to dispatch to reach the workspace called `name`: the workspace itself
--- if there is one, else the selector that makes it.
+-- What to dispatch to reach the workspace called `name`: its selector, if that
+-- finds it, else the workspace itself (a renamed one on 0.57), else the
+-- selector that makes it. Hyprland 0.56 takes no workspace in a dispatch: it
+-- goes to workspace 1 instead.
 local function target(name)
+  local found = hl.get_workspace(selector(name))
+  if found and found.name == name then
+    return selector(name)
+  end
   return workspace_named(name) or selector(name)
 end
 
@@ -94,7 +100,7 @@ local function name_is_free(name)
 end
 
 local function move_to_monitor(workspace, monitor)
-  hl.dispatch(hl.dsp.workspace.move({ workspace = workspace, monitor = monitor.name }))
+  hl.dispatch(hl.dsp.workspace.move({ workspace = target(workspace.name), monitor = monitor.name }))
 end
 
 -- The tab of a space to show on a monitor: the one with the window you last
@@ -334,7 +340,7 @@ local function tab_here(space, slot)
     if workspace.monitor and monitor and workspace.monitor.name ~= monitor.name then
       move_to_monitor(workspace, monitor)
     end
-    return workspace
+    return target(name)
   end
   -- A new tab. The name it'd have may be a renamed tab's address, which it
   -- would find rather than make: take the next one free, and `space renumber`
