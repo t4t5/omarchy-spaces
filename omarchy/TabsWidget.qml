@@ -40,18 +40,6 @@ BarWidget {
   // The `spaces.tabs` entry's settings.
   readonly property var tabsSettings: root.tabsEntry && root.tabsEntry.id === "spaces.tabs" ? root.tabsEntry.settings : ({})
 
-  // How Spaces' own tabs draw themselves.
-  readonly property var tabsTheme: ({
-    foreground: root.foreground,
-    accent: root.accent,
-    hover: root.hover,
-    fontFamily: root.fontFamily,
-    fontSize: root.fontSize,
-    barSize: root.barSize,
-    padding: Style.spacing.lg,
-    cornerRadius: root.cornerRadius,
-  })
-
   implicitWidth: root.vertical ? root.barSize : tabsHost.x + tabsHost.implicitWidth + root.padding
   implicitHeight: root.vertical ? tabsHost.implicitHeight : root.barSize
 
@@ -171,12 +159,15 @@ BarWidget {
     readonly property var tabs: root.live.tabs.map(Spaces.publicTab)
     readonly property bool sidebarOpen: !!root.sidebar && root.sidebar.opened
       && !!root.sidebar.screen && root.sidebar.screen.name === root.screenName
-    // The tab being renamed, by its id, and the name typed so far.
+    // The tab being renamed, by its id, the name typed so far, and whether all
+    // of it is selected (so the next keypress replaces it).
     readonly property string renaming: {
       var id = root.controller ? root.controller.renaming : ""
       return id && root.live.tabs.some(function(tab) { return tab.id === id }) ? id : ""
     }
     readonly property string renameText: spacesApi.renaming && root.controller ? root.controller.nameText : ""
+    readonly property bool renameSelected: spacesApi.renaming !== "" && !!root.controller
+      && root.controller.nameSelected && spacesApi.renameText !== ""
 
     // A tab by its id, or its number.
     function goToTab(target) { root.run(["space", "tab", "go", String(target)]) }
@@ -282,7 +273,12 @@ BarWidget {
         origin: root.origin
         tabsX: root.tabsX
         maxWidth: root.maxWidth
-        theme: root.tabsTheme
+        foreground: root.foreground
+        accent: root.accent
+        hover: root.hover
+        fontFamily: root.fontFamily
+        fontSize: root.fontSize
+        cornerRadius: root.cornerRadius
         numerals: root.tabsSettings.numerals === false ? false
           : Array.isArray(root.tabsSettings.numerals) ? root.tabsSettings.numerals : null
         labels: root.tabsSettings.labels !== false
@@ -313,7 +309,7 @@ BarWidget {
     readonly property string customUrl: Spaces.customModuleUrl(host.entry, root.home)
     readonly property var registered: {
       var registry = root.service ? root.service.barWidgetRegistry : null
-      if (!host.entry || !host.entry.id || host.customUrl || !registry) return null
+      if (!host.entry || !host.entry.id || host.entry.id === root.moduleName || host.customUrl || !registry) return null
       var revision = registry.revision
       var widgets = registry.widgets
       return widgets && widgets[host.entry.id] ? widgets[host.entry.id].component : null
@@ -375,7 +371,9 @@ BarWidget {
       interval: 5000
       onTriggered: {
         var source = host.entry.settings && host.entry.settings.source
-        if (source) console.warn("omarchy-spaces: invalid source \"" + source + "\" for the slot; use an absolute or ~/ path")
+        if (host.entry.id === root.moduleName) console.warn("omarchy-spaces: the tabs slot can't hold " + root.moduleName)
+        else if (source) console.warn("omarchy-spaces: invalid source \"" + source + "\" for the slot; use an absolute or ~/ path")
+        else if (host.entry.settings && host.entry.settings.type && !host.entry.id) console.warn("omarchy-spaces: custom slot entry with type \"" + host.entry.settings.type + "\" needs an id or source")
         else console.warn("omarchy-spaces: no bar widget \"" + host.entry.id + "\" for the slot; is it in shell.json's plugins?")
       }
     }

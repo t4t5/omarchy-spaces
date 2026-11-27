@@ -8,8 +8,7 @@ import "Spaces.mjs" as Spaces
 // The active space's tabs (`spaces.tabs`, the `tabs` slot's own): clicks
 // switch tabs, double-clicks rename them inline, right-clicks open the tab
 // menu, dragging reorders them along a horizontal bar, and the `+` opens a new
-// one. Tabs share the room left before the clock fairly. DefaultTab.qml draws
-// each tab and DefaultNewTab.qml the `+`.
+// one. Tabs share the room left before the clock fairly.
 Item {
   id: root
 
@@ -21,7 +20,12 @@ Item {
   property point origin: Qt.point(0, 0)
   property real tabsX: 0
   property real maxWidth: Infinity
-  property var theme: null
+  property color foreground: Color.bar.text
+  property color accent: Color.accent
+  property color hover: Color.menu.selectedBackground
+  property string fontFamily: Style.font.family
+  property int fontSize: Style.font.body
+  property real cornerRadius: Style.cornerRadius
   // From the `spaces.tabs` entry's settings.
   property var numerals: null
   property bool labels: true
@@ -48,8 +52,7 @@ Item {
   property var dragGaps: []
   readonly property var dragShifts: Spaces.tabShifts(root.dragWidths, root.dragFrom, root.dragTo, stripRow.spacing, root.dragGaps)
   readonly property real dragThreshold: Math.round(root.barSize * 0.4)
-  readonly property real tabPadding: root.theme ? root.theme.padding : Style.spacing.lg
-  readonly property int fontSize: root.theme && root.theme.fontSize > 0 ? root.theme.fontSize : Style.font.body
+  readonly property real tabPadding: Style.spacing.lg
 
   implicitWidth: root.vertical ? root.barSize : stripRow.implicitWidth
   implicitHeight: root.vertical ? stripColumn.implicitHeight : root.barSize
@@ -188,14 +191,29 @@ Item {
     Item {
       id: newTabHost
       visible: root.showNewTab
-      width: newTabView.implicitWidth
+      width: newTabLabel.implicitWidth + root.tabPadding * 2
       height: root.barSize
 
-      DefaultNewTab {
-        id: newTabView
+      Rectangle {
         anchors.fill: parent
-        hovered: newTabMouse.containsMouse
-        theme: root.theme
+        anchors.margins: Style.spacing.xs
+        radius: root.cornerRadius
+        color: newTabMouse.containsMouse ? root.hover : "transparent"
+      }
+
+      Text {
+        id: newTabLabel
+        anchors.fill: parent
+        anchors.leftMargin: root.tabPadding
+        anchors.rightMargin: root.tabPadding
+        verticalAlignment: Text.AlignVCenter
+        horizontalAlignment: Text.AlignHCenter
+        textFormat: Text.PlainText
+        text: "+"
+        color: root.foreground
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: root.fontSize
       }
 
       MouseArea {
@@ -222,19 +240,33 @@ Item {
     }
   }
 
-  // One tab, or an empty number on `home`: takes the pointer, drags, and sets
-  // its width, and has DefaultTab.qml draw it.
+  // One tab, or an empty number on `home`: draws its numeral, label, status
+  // dot, and inline rename field, and handles clicks, double-clicks, menus,
+  // and drag-to-reorder.
   component TabCell: Item {
     id: button
 
     property var cell: null
     readonly property var tab: cell && cell.tab ? cell.tab : null
     readonly property int tabIndex: button.tab ? cell.index : -1
+    readonly property int slot: button.tab ? button.tab.slot : (button.cell ? button.cell.gap : 0)
     readonly property bool gap: !button.tab
+    readonly property bool gapRun: button.gap && !!button.cell && !!button.cell.run
+    readonly property bool current: !!button.tab && button.tab.active
     readonly property string status: button.tab ? button.tab.status : ""
     readonly property bool editing: !!button.tab && !!root.controller && root.controller.renaming === button.tab.id
     readonly property bool menuOpen: !!button.tab && !!root.controller && root.controller.menuTabFor === button.tab.id
       && !!root.controller.menuScreen && root.controller.menuScreen.name === root.screenName
+
+    readonly property string numberText: Spaces.numeralFor(button.slot, root.numerals)
+    readonly property string fallbackSlot: button.slot > 0 ? String(button.slot) : "·"
+    readonly property string displayText: {
+      if (button.gap) return button.gapRun ? "…" : (button.numberText || button.fallbackSlot)
+      if (root.vertical) return button.numberText || button.fallbackSlot
+      var text = root.labels && button.tab ? button.tab.label : ""
+      if (!button.numberText && !text) return button.fallbackSlot
+      return button.numberText + (button.numberText && text ? " " : "") + text
+    }
 
     property Item mouseLayer: null
     property bool dragged: false
@@ -247,86 +279,99 @@ Item {
     z: button.dragged ? 1 : 0
     transform: Translate { x: button.dragged ? root.dragDx : button.shift }
 
-    property real cap: Infinity
-    readonly property real natural: Math.min(view.implicitWidth, Style.space(220))
-    width: root.vertical ? root.barSize : (button.editing ? button.natural : Math.min(button.natural, button.cap))
-    height: root.vertical ? (view.implicitHeight > 0 ? view.implicitHeight : Style.space(26)) : root.barSize
-    clip: true
+    readonly property real dotRoom: button.status !== "" && !root.vertical ? dot.width + Style.spacing.sm : 0
 
-    // The tab's status dot and its name as it's typed, for DefaultTab.qml to
-    // place.
-    Component {
-      id: statusPart
-      StatusDot {
-        status: button.status
-        colors: root.controller ? root.controller.statusColors : null
-        workingColor: root.theme ? root.theme.foreground : Color.bar.text
-        size: Math.max(5, Math.round(root.fontSize * 0.45))
-      }
+    property real cap: Infinity
+    readonly property real natural: Math.min((button.editing ? editor.implicitWidth : label.implicitWidth) + button.dotRoom + root.tabPadding * 2, Style.space(220))
+    width: root.vertical ? root.barSize : (button.editing ? button.natural : Math.min(button.natural, button.cap))
+    height: root.vertical ? Style.space(26) : root.barSize
+
+    Rectangle {
+      anchors.fill: parent
+      anchors.margins: Style.spacing.xs
+      radius: root.cornerRadius
+      color: button.editing ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.08)
+        : button.menuOpen || button.dragged || (mouse.containsMouse && !button.current && root.dragFrom < 0) ? root.hover : "transparent"
+      border.width: button.editing ? Math.max(1, Style.space(1)) : 0
+      border.color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.6)
     }
 
-    Component {
-      id: editorPart
-      Item {
-        id: ed
-        readonly property color fg: root.theme ? root.theme.foreground : Color.bar.text
-        readonly property color acc: root.theme ? root.theme.accent : Color.accent
-        readonly property string fam: root.theme ? root.theme.fontFamily : Style.font.family
-        readonly property int fsize: root.fontSize
-        readonly property real maxNameWidth: Style.space(220) - root.tabPadding * 2 - Style.space(24)
-        readonly property string typed: button.editing && root.controller ? root.controller.nameText : ""
-        readonly property bool selected: button.editing && !!root.controller && root.controller.nameSelected && typed !== ""
-        readonly property real shownWidth: typed === ""
-          ? caret.width + 1 + placeholder.implicitWidth
-          : Math.min(editName.implicitWidth, Math.max(Style.space(40), maxNameWidth))
+    Text {
+      id: label
+      visible: !button.editing
+      anchors.fill: parent
+      anchors.leftMargin: root.vertical ? 0 : root.tabPadding
+      anchors.rightMargin: root.vertical ? 0 : root.tabPadding + button.dotRoom
+      verticalAlignment: Text.AlignVCenter
+      horizontalAlignment: Text.AlignHCenter
+      textFormat: Text.PlainText
+      text: button.displayText
+      elide: Text.ElideRight
+      color: button.current ? root.accent : root.foreground
+      opacity: button.current ? 1 : button.gap ? 0.3 : 0.6
+      font.family: root.fontFamily
+      font.pixelSize: root.fontSize
+      font.bold: button.current
+    }
 
-        implicitWidth: shownWidth + caret.width + 1
-        implicitHeight: Math.max(editName.implicitHeight, fsize + Style.spacing.xxs)
+    Row {
+      id: editor
+      visible: button.editing && !root.vertical
+      x: root.tabPadding
+      anchors.verticalCenter: parent.verticalCenter
 
-        Text {
-          id: editName
-          width: ed.shownWidth
-          anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.PlainText
-          text: ed.typed
-          elide: Text.ElideLeft
-          color: button.tab && button.tab.active ? ed.acc : ed.fg
-          font.family: ed.fam
-          font.pixelSize: ed.fsize
-          font.bold: !!button.tab && button.tab.active
-        }
+      Text {
+        id: editNumber
+        visible: button.numberText !== ""
+        textFormat: Text.PlainText
+        text: button.numberText + " "
+        color: label.color
+        font: label.font
+      }
+
+      Text {
+        id: editName
+        readonly property real numberRoom: editNumber.visible ? editNumber.implicitWidth : 0
+        readonly property real room: Math.max(Style.space(40), Style.space(220) - root.tabPadding * 2 - numberRoom - button.dotRoom - caret.width - 1)
+        width: text === "" ? placeholder.x + placeholder.implicitWidth : Math.min(implicitWidth, room)
+        textFormat: Text.PlainText
+        text: button.editing && root.controller ? root.controller.nameText : ""
+        elide: Text.ElideLeft
+        color: label.color
+        font: label.font
+        readonly property bool selected: button.editing && !!root.controller && root.controller.nameSelected && text !== ""
 
         Text {
           id: placeholder
-          visible: ed.typed === ""
-          x: caret.width + 2
+          visible: editName.text === ""
+          x: caret.x + caret.width
           anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
           text: "name"
-          color: ed.fg
+          color: root.foreground
           opacity: 0.35
-          font.family: ed.fam
-          font.pixelSize: ed.fsize
+          font.family: root.fontFamily
+          font.pixelSize: root.fontSize
         }
 
         Rectangle {
-          visible: ed.selected
+          visible: editName.selected
           z: -1
           width: editName.contentWidth
-          height: ed.fsize + Style.spacing.xxs
+          height: root.fontSize + Style.spacing.xxs
           anchors.verticalCenter: parent.verticalCenter
           radius: Math.max(1, Style.space(2))
-          color: Qt.rgba(ed.acc.r, ed.acc.g, ed.acc.b, 0.3)
+          color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.3)
         }
 
         Rectangle {
           id: caret
-          visible: button.editing && !ed.selected
-          x: ed.typed === "" ? 1 : Math.min(editName.contentWidth, ed.shownWidth) + 1
+          visible: button.editing && !editName.selected
+          x: editName.contentWidth + 1
           width: Math.max(1, Style.space(2))
-          height: ed.fsize + Style.spacing.xxs
+          height: root.fontSize + Style.spacing.xxs
           anchors.verticalCenter: parent.verticalCenter
-          color: ed.acc
+          color: root.accent
 
           SequentialAnimation on opacity {
             running: button.editing
@@ -341,25 +386,16 @@ Item {
       }
     }
 
-    readonly property var cellParts: ({ status: statusPart, editor: editorPart })
-
-    DefaultTab {
-      id: view
-      anchors.fill: parent
-      tab: button.tab
-      slot: button.tab ? button.tab.slot : (button.cell ? button.cell.gap : 0)
-      gap: button.gap
-      gapRun: button.gap && !!button.cell && !!button.cell.run
-      current: !!button.tab && button.tab.active
-      hovered: mouse.containsMouse && root.dragFrom < 0
-      dragged: button.dragged
-      menuOpen: button.menuOpen
-      editing: button.editing
-      vertical: root.vertical
-      theme: root.theme
-      parts: button.cellParts
-      numerals: root.numerals
-      labels: root.labels
+    StatusDot {
+      id: dot
+      status: button.status
+      colors: root.controller ? root.controller.statusColors : null
+      workingColor: root.foreground
+      size: Math.max(5, Math.round(root.fontSize * 0.45))
+      x: root.vertical ? parent.width * 0.7
+        : button.editing ? editor.x + editor.implicitWidth + Style.spacing.sm
+        : label.x + Math.min(label.contentWidth, label.width) + Style.spacing.sm
+      y: root.vertical ? Style.spacing.xs : (parent.height - height) / 2
     }
 
     MouseArea {

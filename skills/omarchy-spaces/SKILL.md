@@ -44,7 +44,7 @@ To replace `tabs`, give it a widget entry:
 - `"tabs": false` hides the tabs.
 - Until a widget loads, the slot shows Spaces' own.
 
-A widget in `tabs` is an ordinary bar widget (`bar`, `moduleName`, `settings`), plus `maxWidth` (room before the clock) and `spaces`: `space` (`{ id, label, named, icon, status }`), `tabs` (`{ id, slot, label, named, status, active }`), `sidebarOpen` (on this screen), `renaming`, `renameText`, `goToTab(idOrNumber)`, `newTab()`, `renameTab(id)`, `reorderTab(id, position)`, `openTabMenu(id, x, y)` (window coordinates from `mapToItem(null, x, y)`), `toggleSidebar()`. Set `textFormat: Text.PlainText` on any `Text` showing tab or space names. A new or edited `.qml` file may need `omarchy restart shell` before it loads.
+A widget in `tabs` is an ordinary bar widget (`bar`, `moduleName`, `settings`), plus `maxWidth` (room before the clock) and `spaces`: `space` (`{ id, label, named, icon, status }`), `tabs` (`{ id, slot, label, named, status, active }`), `sidebarOpen` (on this screen), `renaming`, `renameText`, `renameSelected`, `goToTab(idOrNumber)`, `newTab()`, `renameTab(id)`, `reorderTab(id, position)`, `openTabMenu(id, x, y)` (window coordinates from `mapToItem(null, x, y)`), `toggleSidebar()`. These properties are assigned once the widget loads, so bind to them rather than marking them `required` or reading them in `Component.onCompleted`. Set `textFormat: Text.PlainText` on any `Text` showing tab or space names. A new or edited `.qml` file may need `omarchy restart shell` before it loads.
 
 ## Configuration (`~/.config/omarchy-spaces/config.toml`)
 

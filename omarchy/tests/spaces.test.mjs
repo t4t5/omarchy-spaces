@@ -260,6 +260,7 @@ test("reads the tabs slot as a bar widget entry", () => {
   assert.equal(parseBarEntry(""), null)
   assert.equal(parseBarEntry({}), null)
   assert.deepEqual(parseBarEntry({ source: "~/Tabs.qml" }), { id: "", settings: { source: "~/Tabs.qml" } }, "source alone names a custom module")
+  assert.deepEqual(parseBarEntry({ type: "qml" }), { id: "", settings: { type: "qml" } }, "type alone names an incomplete module entry")
   assert.equal(parseBarEntry(["spaces.tabs"]), null)
 
   assert.deepEqual(slotEntry(null, "tabs", "spaces.tabs"), { id: "spaces.tabs", settings: {} })
@@ -282,6 +283,7 @@ test("finds a custom QML module as the bar does", () => {
   assert.equal(url({ id: "kanji", source: "~/bar/Kanji.qml" }), "file:///home/u/bar/Kanji.qml")
   assert.equal(url({ source: "~/bar/Kanji.qml" }), "file:///home/u/bar/Kanji.qml")
   assert.equal(url({ id: "kanji", type: "qml" }), "file:///home/u/.config/omarchy/bar/modules/kanji.qml")
+  assert.equal(url({ type: "qml" }), "", "qml without id or source")
   assert.equal(url({ id: "../evil", type: "qml" }), "")
   assert.equal(url({ id: "kanji", source: "relative.qml" }), "", "a path from nowhere")
   assert.equal(url({ id: "kanji", type: "command", source: "~/x.qml" }), "")

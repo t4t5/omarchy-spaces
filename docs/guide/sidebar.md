@@ -72,7 +72,7 @@ Put any bar widget in `tabs` by its id, or one of your own as a custom QML modul
 
 ### Writing a tabs widget
 
-A widget for `tabs` is an ordinary bar widget: Spaces gives it `bar`, `moduleName` and `settings` if it has those properties, as the bar does. It also gets:
+A widget for `tabs` is an ordinary bar widget: Spaces sets `bar`, `moduleName` and `settings` once the widget loads if it has those properties, as the bar does (so bind to them rather than marking them `required` or reading them in `Component.onCompleted`). It also sets:
 
 - `maxWidth`: the room left before the bar's clock (`Infinity` when there's no limit). The widget should fit itself in it.
 - `spaces`: the space and its tabs, and what you can do with them.
@@ -82,7 +82,7 @@ A widget for `tabs` is an ordinary bar widget: Spaces gives it `bar`, `moduleNam
 - `space`: the space shown on this screen, `{ id, label, named, icon, status }`. `icon` is a glyph, emoji, image path, or `""`; `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `tabs`: its tabs, each `{ id, slot, label, named, status, active }`. `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `sidebarOpen`: whether the sidebar is expanded on this screen.
-- `renaming` and `renameText`: the id of the tab being renamed, and the name typed so far. Spaces takes the keys: Enter keeps the name, Escape drops it.
+- `renaming`, `renameText` and `renameSelected`: the id of the tab being renamed, the name typed so far, and whether all of it is selected (so the next keypress replaces it). Spaces takes the keys: Enter keeps the name, Escape drops it.
 - `goToTab(target)`: by a tab's id or its number.
 - `newTab()`.
 - `renameTab(id)`: starts renaming a tab, or with `""` the one you're on.
@@ -102,7 +102,7 @@ Item {
   property real maxWidth: Infinity
 
   implicitWidth: row.implicitWidth
-  implicitHeight: bar ? bar.barSize : 0
+  implicitHeight: Style.bar.sizeHorizontal
 
   Row {
     id: row

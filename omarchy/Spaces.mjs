@@ -570,16 +570,17 @@ export function parseBarEntry(entry) {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null
   const id = typeof entry.id === "string" ? entry.id.trim() : ""
   const source = typeof entry.source === "string" ? entry.source.trim() : ""
-  if (!id && !source) return null
+  const type = typeof entry.type === "string" ? entry.type.trim() : ""
+  if (!id && !source && !type) return null
   const settings = {}
   for (const key of Object.keys(entry)) if (key !== "id") settings[key] = entry[key]
   return { id, settings }
 }
 
 // The entry in slot `key` of Spaces' `settings`: `fallback` when it isn't set
-// or names nothing, with the settings of an object with neither an id nor a
-// `source` (as `{ numerals: [...] }`), so `source` is never one of Spaces'
-// own settings; null when it's `false`.
+// or names nothing, with the settings of an object with neither an id, a
+// `source`, nor a `type` (as `{ numerals: [...] }`), so those are never
+// Spaces' own settings; null when it's `false`.
 export function slotEntry(settings, key, fallback) {
   const value = settings ? settings[key] : undefined
   if (value === false || value === null) return null
@@ -610,7 +611,7 @@ export function customModuleUrl(entry, home) {
   const settings = entry.settings || {}
   if (settings.type && settings.type !== "qml") return ""
   if (typeof settings.source === "string" && settings.source.trim()) return fileUrl(expandPath(settings.source, home))
-  if (settings.type !== "qml" || entry.id.includes("..") || entry.id.startsWith("/")) return ""
+  if (settings.type !== "qml" || !entry.id || entry.id.includes("..") || entry.id.startsWith("/")) return ""
   return fileUrl(String(home || "").replace(/\/$/, "") + "/.config/omarchy/bar/modules/" + entry.id + ".qml")
 }
 
