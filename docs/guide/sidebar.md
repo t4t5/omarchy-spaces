@@ -38,7 +38,7 @@ The `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` has two slots: `he
 
 ### Spaces' own tabs
 
-Leave `tabs` out and you get Spaces' own tabs. An object without an `id` changes their settings:
+Leave `tabs` out and you get Spaces' own tabs. An object with neither an `id` nor a `source` changes their settings (one with a `source` is a custom module, below):
 
 ```json
 {

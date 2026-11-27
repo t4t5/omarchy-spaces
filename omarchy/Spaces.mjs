@@ -576,8 +576,9 @@ export function parseBarEntry(entry) {
 }
 
 // The entry in slot `key` of Spaces' `settings`: `fallback` when it isn't set
-// or names nothing, with the settings of an object without an id (as
-// `{ numerals: [...] }`); null when it's `false`.
+// or names nothing, with the settings of an object with neither an id nor a
+// `source` (as `{ numerals: [...] }`), so `source` is never one of Spaces'
+// own settings; null when it's `false`.
 export function slotEntry(settings, key, fallback) {
   const value = settings ? settings[key] : undefined
   if (value === false || value === null) return null

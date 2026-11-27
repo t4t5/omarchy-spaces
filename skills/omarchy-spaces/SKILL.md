@@ -23,7 +23,7 @@ Omarchy Spaces (`com.t4t5.spaces`) adds project-based spaces (sidebar rail on th
 
 The `com.t4t5.spaces` entry has two slots: `header` (the corner over the sidebar) and `tabs` (past the sidebar's edge). Each takes a bar widget entry, written as in the bar's own layout. Full reference, including what a widget gets: `~/.config/omarchy/plugins/com.t4t5.spaces/docs/guide/sidebar.md`.
 
-Spaces' own tabs take settings from an object without an `id`:
+Spaces' own tabs take settings from an object with neither an `id` nor a `source` (a `source` makes it a custom module):
 
 ```json
 {
