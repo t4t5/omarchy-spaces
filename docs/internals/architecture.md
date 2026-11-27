@@ -20,7 +20,7 @@ The tabs are a bar widget (`TabsWidget.qml`), and `Base.qml` draws the sidebar u
 
 Both draw what one `space watch` says (`src/view.rs`). The plugin's service runs it (`Watch.qml`) and restarts it when it ends, as it does when Hyprland restarts or `space` is reinstalled. Each line is all of it as of one moment: where you are, each monitor's tabs and the spaces. The plugin binds to the last one, and neither copies it nor asks Hyprland where you are as well, as the two would come apart.
 
-The same watch serves `space events` (`src/events.rs`), on `$XDG_RUNTIME_DIR/omarchy-spaces/events.sock`. It sends each subscriber a snapshot when it joins, then the changes between one moment and the next. It's the only one that follows which agents are done and seen, so the events and the sidebar can't disagree. A subscriber that falls far behind is dropped rather than holding the watch up. A second watch, run beside the plugin's, leaves the serving to the first.
+The same watch serves `space events` (`src/events.rs`), on `$XDG_RUNTIME_DIR/omarchy-spaces/events.sock`. It sends each subscriber a snapshot when it joins, then the changes between one moment and the next. It's the only one that follows which agents are done and seen, so the events and the sidebar can't disagree. A subscriber that falls far behind is dropped rather than holding the watch up. The watch that serves holds `.events.lock` beside the socket. Another one, run beside the plugin's or started by the plugin before the last has ended, tries for the lock every two seconds and takes over once it gets it.
 
 ### When `space watch` reads again
 

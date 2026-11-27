@@ -12,8 +12,8 @@
 //! snapshot.
 
 use std::collections::{BTreeMap, HashSet};
+use std::fs::{File, TryLockError};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
-use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
@@ -27,6 +27,7 @@ use crate::list::{self, List, Space, Tab, Terminal};
 use crate::live::{Live, Row, Snapshot};
 use crate::name;
 use crate::paths;
+use crate::state;
 use crate::status::Status;
 
 /// Goes up only when a change would break a script. New event types or
@@ -180,15 +181,11 @@ fn line(seq: u64, payload: &Payload) -> Arc<str> {
 /// What the watch serves `space events` from.
 pub struct Hub {
     path: PathBuf,
-    /// `(dev, ino)` of the socket this hub bound, so `Drop` never unlinks one
-    /// bound by a later watch.
-    inode: Option<(u64, u64)>,
     inner: Arc<Mutex<Inner>>,
-}
-
-fn file_inode(path: &Path) -> Option<(u64, u64)> {
-    let meta = std::fs::symlink_metadata(path).ok()?;
-    Some((meta.dev(), meta.ino()))
+    /// Held for as long as this watch serves, so it alone has the socket:
+    /// another watch waits for it rather than replacing the socket under it.
+    /// Fields drop after `drop`, so the socket goes before the lock does.
+    _serving: File,
 }
 
 #[derive(Default)]
@@ -209,31 +206,27 @@ struct Subscriber {
 
 impl Hub {
     /// Listens on `path`, unless another watch is already serving there, as
-    /// when you run one beside the plugin's: then `None`, and that one goes
-    /// on serving.
+    /// when you run one beside the plugin's, or the plugin starts a new one
+    /// before the last has ended: then `None`, and that one goes on serving.
+    /// Cheap enough to try again and again until it's let go.
     pub fn serve(path: &Path) -> Result<Option<Hub>> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)
-                .with_context(|| format!("can't make {}", paths::tilde(dir)))?;
+        let dir = path.parent().unwrap_or(Path::new("."));
+        let serving = state::lock_file(dir, ".events.lock")?;
+        match serving.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => return Ok(None),
+            Err(TryLockError::Error(e)) => return Err(e).context("can't lock the events"),
         }
-        if UnixStream::connect(path).is_ok() {
-            return Ok(None);
-        }
-        // Left by a watch that didn't get to tidy up.
+        // Holding the lock, no other watch is serving: a socket there was
+        // left by one that didn't get to tidy up.
         match std::fs::remove_file(path) {
             Err(e) if e.kind() != ErrorKind::NotFound => {
                 return Err(e).with_context(|| format!("can't replace {}", paths::tilde(path)));
             }
             _ => {}
         }
-        let listener = match UnixListener::bind(path) {
-            Ok(listener) => listener,
-            Err(e) if e.kind() == ErrorKind::AddrInUse => return Ok(None),
-            Err(e) => {
-                return Err(e).with_context(|| format!("can't listen on {}", paths::tilde(path)));
-            }
-        };
-        let inode = file_inode(path);
+        let listener = UnixListener::bind(path)
+            .with_context(|| format!("can't listen on {}", paths::tilde(path)))?;
         let inner = Arc::new(Mutex::new(Inner::default()));
         let shared = Arc::clone(&inner);
         std::thread::spawn(move || {
@@ -243,8 +236,8 @@ impl Hub {
         });
         Ok(Some(Hub {
             path: path.to_path_buf(),
-            inode,
             inner,
+            _serving: serving,
         }))
     }
 
@@ -287,9 +280,7 @@ impl Hub {
 
 impl Drop for Hub {
     fn drop(&mut self) {
-        if self.inode.is_some() && file_inode(&self.path) == self.inode {
-            let _ = std::fs::remove_file(&self.path);
-        }
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 
@@ -753,23 +744,28 @@ mod tests {
     }
 
     #[test]
-    fn drop_only_removes_the_socket_it_bound() {
+    fn one_watch_serves_at_a_time() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("events.sock");
-        let hub = Hub::serve(&path).unwrap().unwrap();
+        let first = Hub::serve(&path).unwrap().unwrap();
         assert!(path.exists());
+        // Another watch waits its turn, leaving the first's socket be.
+        assert!(Hub::serve(&path).unwrap().is_none());
+        assert!(UnixStream::connect(&path).is_ok());
 
-        // Another watch replaces the path: dropping the old hub leaves it be.
-        std::fs::remove_file(&path).unwrap();
-        std::fs::write(&path, "new").unwrap();
-        drop(hub);
-        assert!(path.exists(), "must not unlink a different inode");
-
-        // Normal lifecycle: dropping removes the socket it bound.
-        std::fs::remove_file(&path).unwrap();
-        let hub = Hub::serve(&path).unwrap().unwrap();
-        assert!(path.exists());
-        drop(hub);
+        // Once the first has gone, the next takes over.
+        drop(first);
         assert!(!path.exists());
+        let second = Hub::serve(&path).unwrap().unwrap();
+        assert!(UnixStream::connect(&path).is_ok());
+
+        // A socket left by a watch that was killed, which let go of the lock
+        // as it died, is replaced.
+        drop(second);
+        drop(UnixListener::bind(&path).unwrap());
+        assert!(UnixStream::connect(&path).is_err());
+        let third = Hub::serve(&path).unwrap().unwrap();
+        assert!(UnixStream::connect(&path).is_ok());
+        drop(third);
     }
 }

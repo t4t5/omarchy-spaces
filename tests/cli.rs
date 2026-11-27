@@ -4135,7 +4135,6 @@ fn overlapping_watch_takes_over_events_when_first_ends() {
     use std::time::Duration;
 
     let env = Env::new();
-    let app = env.dir("app");
     let first = Watch::start(&env);
     let stream = Watch::run(env.command(&["events"]));
     assert_eq!(
@@ -4151,8 +4150,6 @@ fn overlapping_watch_takes_over_events_when_first_ends() {
     // Once the first watch exits, the second takes over on its slow tick and
     // `space events` reconnects with a fresh snapshot.
     drop(first);
-    let _ = env.add_terminal("s1:1", &app);
-    env.event("openwindow>>1,s1:1,kitty,zsh");
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut saw_snapshot = false;
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
