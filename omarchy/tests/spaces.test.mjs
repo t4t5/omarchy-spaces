@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, firstOnBar, parseBarEntry, slotEntry, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicTab, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, parseBarEntry, slotEntry, expandPath, customModuleUrl, headerOnBar, numeralFor, publicSpace, publicTab, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -241,13 +241,10 @@ test("reads the bar's background look", () => {
 
 test("reads whether the sidebar's header is on the bar", () => {
   const id = "com.t4t5.spaces"
-  assert.equal(firstOnBar({ layout: { left: [{ id }] } }, id), true)
-  assert.equal(firstOnBar({ layout: { left: [id] } }, id), true)
   assert.equal(headerOnBar({ layout: { left: [{ id }] } }, id), true)
+  assert.equal(headerOnBar({ layout: { left: [id] } }, id), true)
   assert.equal(headerOnBar({ layout: { left: [{ id }, { id: "omarchy.menu" }] } }, id), true)
   assert.equal(headerOnBar({ position: "bottom", layout: { left: [{ id }] } }, id), true)
-  assert.equal(headerOnBar({ layout: { left: [{ id, header: false }] } }, id), false, "the sidebar keeps its header")
-  assert.equal(headerOnBar({ layout: { left: [{ id, header: "omarchy.menu" }] } }, id), true, "another widget has the corner")
   assert.equal(headerOnBar({ layout: { left: [{ id: "omarchy.menu" }, { id }] } }, id), false, "the menu has the corner")
   assert.equal(headerOnBar({ position: "left", layout: { left: [{ id }] } }, id), false, "a vertical bar")
   assert.equal(headerOnBar({ position: "right", layout: { left: [{ id }] } }, id), false, "a vertical bar")
@@ -257,7 +254,7 @@ test("reads whether the sidebar's header is on the bar", () => {
   assert.equal(headerOnBar(null, id), false)
 })
 
-test("reads the header and tabs slots as bar widget entries", () => {
+test("reads the tabs slot as a bar widget entry", () => {
   assert.deepEqual(parseBarEntry("spaces.tabs"), { id: "spaces.tabs", settings: {} })
   assert.deepEqual(parseBarEntry({ id: "spaces.tabs", labels: false }), { id: "spaces.tabs", settings: { labels: false } })
   assert.equal(parseBarEntry(""), null)
@@ -270,7 +267,7 @@ test("reads the header and tabs slots as bar widget entries", () => {
   assert.equal(slotEntry({ tabs: false }, "tabs", "spaces.tabs"), null)
   assert.equal(slotEntry({ tabs: null }, "tabs", "spaces.tabs"), null)
   assert.deepEqual(slotEntry({ tabs: 42 }, "tabs", "spaces.tabs"), { id: "spaces.tabs", settings: {} }, "nothing named")
-  assert.deepEqual(slotEntry({ header: "omarchy.menu" }, "header", "spaces.header"), { id: "omarchy.menu", settings: {} })
+  assert.deepEqual(slotEntry({ tabs: "io.github.someone.tabs" }, "tabs", "spaces.tabs"), { id: "io.github.someone.tabs", settings: {} })
   assert.deepEqual(slotEntry({ tabs: { id: "spaces.tabs", numerals: false, newTab: false } }, "tabs", "spaces.tabs"),
     { id: "spaces.tabs", settings: { numerals: false, newTab: false } })
   assert.deepEqual(slotEntry({ tabs: { numerals: ["一"] } }, "tabs", "spaces.tabs"),

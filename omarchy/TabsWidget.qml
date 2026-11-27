@@ -12,13 +12,14 @@ import "Spaces.mjs" as Spaces
 //
 // The bar parts where the windows begin, by the sidebar's rail or by the whole
 // sidebar. Before that line it draws the shaded recess and, when first in the
-// left section, its `header` slot. Past it, from a rounded corner, it draws its
-// `tabs` slot, sliding with the windows as the sidebar opens.
+// left section, the sidebar's header (BarHeader.qml). Past it, from a rounded
+// corner, it draws its `tabs` slot, sliding with the windows as the sidebar
+// opens.
 //
-// Each slot holds a bar widget entry (Spaces.slotEntry): Spaces' own
-// (`spaces.header`, `spaces.tabs`) by default, or any other bar widget or
-// custom QML module, which gets the bar, its settings, and `spaces` (below),
-// as one on the bar does. `false` leaves the slot empty.
+// The `tabs` slot holds a bar widget entry (Spaces.slotEntry): Spaces' own
+// (`spaces.tabs`) by default, or any other bar widget or custom QML module,
+// which gets the bar, its settings, `maxWidth`, and `spaces` (below), as one
+// on the bar does. `false` leaves it empty.
 BarWidget {
   id: root
   moduleName: "com.t4t5.spaces"
@@ -35,7 +36,6 @@ BarWidget {
   // The space's corner rounds as Hyprland rounds windows.
   readonly property real cornerRadius: Style.cornerRadius
 
-  readonly property var headerEntry: Spaces.slotEntry(root.settings, "header", "spaces.header")
   readonly property var tabsEntry: Spaces.slotEntry(root.settings, "tabs", "spaces.tabs")
   // The `spaces.tabs` entry's settings.
   readonly property var tabsSettings: root.tabsEntry && root.tabsEntry.id === "spaces.tabs" ? root.tabsEntry.settings : ({})
@@ -122,9 +122,9 @@ BarWidget {
   }
   onPartsChanged: root.placeLater()
 
-  // Whether the `header` slot sits on this bar, in place of the sidebar's own.
-  readonly property bool hasHeader: root.parts && !!root.bar && root.headerEntry !== null
-    && Spaces.firstOnBar({ position: root.bar.position, layout: root.bar.layoutConfig }, root.moduleName)
+  // Whether the sidebar's header sits on this bar, in place of its own.
+  readonly property bool hasHeader: root.parts && !!root.bar
+    && Spaces.headerOnBar({ position: root.bar.position, layout: root.bar.layoutConfig }, root.moduleName)
   function tellHeader() {
     if (root.service) root.service.setHeader(root, root.hasHeader)
   }
@@ -160,9 +160,8 @@ BarWidget {
     root.controller.openTabMenu(id, x, top + y, window.screen)
   }
 
-  // What a widget in the `header` or `tabs` slot gets as `spaces`, if it has
-  // the property. Only ever added to, so that a widget written for it keeps
-  // working.
+  // What a widget in the `tabs` slot gets as `spaces`, if it has the property.
+  // Only ever added to, so that a widget written for it keeps working.
   QtObject {
     id: spacesApi
     // The space shown on this bar's screen:
@@ -171,6 +170,7 @@ BarWidget {
     readonly property var space: Spaces.publicSpace(root.watchState, root.live.space)
     readonly property var tabs: root.live.tabs.map(Spaces.publicTab)
     readonly property bool sidebarOpen: !!root.sidebar && root.sidebar.opened
+      && !!root.sidebar.screen && root.sidebar.screen.name === root.screenName
     // The tab being renamed, by its id, and the name typed so far.
     readonly property string renaming: {
       var id = root.controller ? root.controller.renaming : ""
@@ -233,20 +233,18 @@ BarWidget {
     }
   }
 
-  // The `header` slot, over the sidebar's rail: Spaces' own across the
-  // recess, or another widget in the rail's icon column.
+  // The sidebar's header on the bar, over the rail, when first in the left
+  // section.
   Item {
-    id: headerSlot
     visible: root.hasHeader
     x: -root.origin.x
     y: -root.origin.y
     width: root.edge
     height: root.barSize
     clip: true
-    readonly property bool own: !!root.headerEntry && (root.headerEntry.id === "spaces.header" || !headerHost.found)
 
     Loader {
-      active: root.hasHeader && headerSlot.own
+      active: root.hasHeader
       anchors.fill: parent
       sourceComponent: BarHeader {
         sidebar: root.sidebar
@@ -258,13 +256,6 @@ BarWidget {
         onToggleRequested: root.toggleSidebar()
         onMenuRequested: root.run(["omarchy-shell", "shell", "toggle", "omarchy.menu", "{\"menu\":\"root\"}"])
       }
-    }
-
-    HostedWidget {
-      id: headerHost
-      entry: root.hasHeader && root.headerEntry.id !== "spaces.header" ? root.headerEntry : null
-      x: Math.round((root.sidebar ? root.sidebar.axis : 0) - width / 2)
-      y: Math.round((parent.height - height) / 2)
     }
   }
 

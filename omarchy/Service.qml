@@ -13,7 +13,7 @@ Item {
   property var shell: null
   property var manifest: null
   // The bar widgets enabled now, as the shell lends them to a plugin: what
-  // the bar's `header` and `tabs` slots can hold besides Spaces' own.
+  // the bar's `tabs` slot can hold besides Spaces' own.
   property var barWidgetRegistry: null
 
   // Only the first time: the shell hands a kept service the new manifest after

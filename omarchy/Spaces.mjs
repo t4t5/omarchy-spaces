@@ -544,16 +544,17 @@ export function recessAlpha(r, g, b) {
 
 // ---------------------------------------------------------------- slots
 //
-// The `com.t4t5.spaces` entry on the bar has two slots, `header` (the corner
-// over the sidebar) and `tabs` (past the sidebar's edge). Each holds a bar
-// widget entry, as the bar's own layout does: Spaces' own (`spaces.header`,
-// `spaces.tabs`) by default, any registered bar widget by its id, or a custom
+// The `com.t4t5.spaces` entry on the bar has a `tabs` slot (past the sidebar's
+// edge), holding a bar widget entry as the bar's own layout does: Spaces' own
+// (`spaces.tabs`) by default, any registered bar widget by its id, or a custom
 // QML module (`{ id, type: "qml" }` or `{ source }`), with the rest of the
-// entry as its settings. `false` leaves the slot empty.
+// entry as its settings. `false` leaves it empty.
 
-// Whether the widget `id` sits first in the bar's left section, on a bar along
-// the top or bottom, so the corner over the sidebar is its own.
-export function firstOnBar(config, id) {
+// Whether the sidebar's header, its toggle and title, sits on the bar: when
+// the widget `id` comes first in the bar's left section, on a bar along the
+// top or bottom, so the corner over the sidebar is its own. With something
+// before it, as Omarchy's menu, the sidebar keeps its header.
+export function headerOnBar(config, id) {
   if (!config || config.position === "left" || config.position === "right") return false
   const left = config.layout && config.layout.left
   return Array.isArray(left) && !!left[0] && (left[0] === id || left[0].id === id)
@@ -611,16 +612,6 @@ export function customModuleUrl(entry, home) {
   if (typeof settings.source === "string" && settings.source.trim()) return fileUrl(expandPath(settings.source, home))
   if (settings.type !== "qml" || entry.id.includes("..") || entry.id.startsWith("/")) return ""
   return fileUrl(String(home || "").replace(/\/$/, "") + "/.config/omarchy/bar/modules/" + entry.id + ".qml")
-}
-
-// Whether the sidebar's header, its toggle and title, sits on the bar: when
-// the widget `id` comes first in the bar's left section, on a bar along the
-// top or bottom, and its `header` slot isn't empty. With something before it,
-// as Omarchy's menu, or `header: false`, the sidebar keeps its header.
-export function headerOnBar(config, id) {
-  if (!firstOnBar(config, id)) return false
-  const entry = config.layout.left[0]
-  return slotEntry(typeof entry === "object" ? entry : null, "header", "spaces.header") !== null
 }
 
 // The numeral shown for a tab slot `1..10`: its own (`"1"`–`"10"`), the one at

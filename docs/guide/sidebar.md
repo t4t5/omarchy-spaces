@@ -32,9 +32,9 @@ Put it before the tabs, and the sidebar draws its own header:
 omarchy plugin enable omarchy.menu --section left --index 0
 ```
 
-## Customizing the bar
+## Customizing the tabs
 
-The `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` has two slots: `header`, in the corner over the sidebar, and `tabs`, past the sidebar's edge. Each holds a bar widget entry, written the same way as an entry in the bar's own layout.
+The `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` has a `tabs` slot, past the sidebar's edge. It holds a bar widget entry, written the same way as an entry in the bar's own layout.
 
 ### Spaces' own tabs
 
@@ -55,35 +55,33 @@ Leave `tabs` out and you get Spaces' own tabs. An object with neither an `id` no
 - `labels`: `false` shows only the numbers, without the tabs' names.
 - `newTab`: `false` hides the `+`.
 
-### Another widget in a slot
+### Another widget in the tabs slot
 
-Put any bar widget in a slot by its id, or one of your own as a custom QML module, as the bar takes them: `{ "id": "my-tabs", "type": "qml" }` loads `~/.config/omarchy/bar/modules/my-tabs.qml`, and `{ "source": "~/path/to/MyTabs.qml" }` loads that file. The rest of the entry is the widget's settings.
+Put any bar widget in `tabs` by its id, or one of your own as a custom QML module, as the bar takes them: `{ "id": "my-tabs", "type": "qml" }` loads `~/.config/omarchy/bar/modules/my-tabs.qml`, and `{ "source": "~/path/to/MyTabs.qml" }` loads that file. The rest of the entry is the widget's settings. `"tabs": false` hides the tabs.
 
 ```json
 {
   "id": "com.t4t5.spaces",
-  "header": "io.github.someone.logo",
   "tabs": { "id": "io.github.someone.kanji-tabs", "compact": true }
 }
 ```
 
 - A plugin's widget is only loaded while its id appears in `shell.json`'s layout or `plugins` list, and Spaces' entry doesn't count. Add it to `plugins` as well: `"plugins": [{ "id": "io.github.someone.kanji-tabs" }]`.
 - Until the widget loads, or if it never does, the slot shows Spaces' own.
-- `"header": false` leaves the corner to the sidebar, which then draws its own header. Any widget in `header` replaces the sidebar's header, so it should give a way to open the sidebar (`spaces.toggleSidebar()`).
-- Widgets get the bar's API that Spaces has. Omarchy's own widgets that rely on the bar's services may not work in a slot.
+- Widgets get the bar's API that Spaces has. Omarchy's own widgets that rely on the bar's services may not work in the slot.
 
-### Writing a widget for a slot
+### Writing a tabs widget
 
-A widget for a slot is an ordinary bar widget: Spaces gives it `bar`, `moduleName` and `settings` if it has those properties, as the bar does. It also gets:
+A widget for `tabs` is an ordinary bar widget: Spaces gives it `bar`, `moduleName` and `settings` if it has those properties, as the bar does. It also gets:
 
-- `maxWidth`: in the `tabs` slot, the room left before the bar's clock (`Infinity` when there's no limit). The widget should fit itself in it.
+- `maxWidth`: the room left before the bar's clock (`Infinity` when there's no limit). The widget should fit itself in it.
 - `spaces`: the space and its tabs, and what you can do with them.
 
 `spaces` has:
 
 - `space`: the space shown on this screen, `{ id, label, named, icon, status }`. `icon` is a glyph, emoji, image path, or `""`; `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `tabs`: its tabs, each `{ id, slot, label, named, status, active }`. `status` is `""`, `"working"`, `"done"` or `"waiting"`.
-- `sidebarOpen`: whether the sidebar is expanded.
+- `sidebarOpen`: whether the sidebar is expanded on this screen.
 - `renaming` and `renameText`: the id of the tab being renamed, and the name typed so far. Spaces takes the keys: Enter keeps the name, Escape drops it.
 - `goToTab(target)`: by a tab's id or its number.
 - `newTab()`.
