@@ -542,14 +542,109 @@ export function recessAlpha(r, g, b) {
   return luminance > 0.5 ? 0.07 : 0.3
 }
 
-// Whether the sidebar's header, its toggle and title, sits on the bar: when
-// the widget `id` comes first in the bar's left section, on a bar along the
-// top or bottom, so the corner over the sidebar is its own. With something
-// before it, as Omarchy's menu, the sidebar keeps its header.
-export function headerOnBar(config, id) {
+// Whether the widget `id` sits first in the bar's left section, on a bar along
+// the top or bottom, so the corner over the sidebar is its own.
+export function firstOnBar(config, id) {
   if (!config || config.position === "left" || config.position === "right") return false
   const left = config.layout && config.layout.left
-  return Array.isArray(left) && !!left[0] && left[0].id === id
+  return Array.isArray(left) && !!left[0] && (left[0] === id || left[0].id === id)
+}
+
+// Normalizes a bar widget entry: a string id (`"spaces.tabs"`) or an object
+// (`{ id: "spaces.tabs", ... }`) into `{ id, settings, source }`, or null when
+// empty or invalid.
+export function parseBarEntry(entry) {
+  if (typeof entry === "string") {
+    const id = entry.trim()
+    return id ? { id, settings: {}, source: "" } : null
+  }
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null
+  const id = typeof entry.id === "string" ? entry.id.trim() : ""
+  const source = typeof entry.source === "string" ? entry.source.trim() : ""
+  if (!id && !source) return null
+  const settings = {}
+  for (const key of Object.keys(entry)) {
+    if (key === "id") continue
+    settings[key] = entry[key]
+  }
+  return { id, settings, source }
+}
+
+// The header entry for the corner over the sidebar: `"spaces.header"` by
+// default, null when turned off (`false`, `null`, `""`), or a custom entry.
+export function barHeader(settings) {
+  if (!settings || settings.header === undefined) return parseBarEntry("spaces.header")
+  if (settings.header === false || settings.header === null || settings.header === "") return null
+  return parseBarEntry(settings.header)
+}
+
+// The widgets drawn past the sidebar's edge, in order. Defaults to the space's
+// tabs followed by the `+` button; an explicit array overrides the list.
+export function barWidgets(settings) {
+  if (!settings || !Array.isArray(settings.widgets)) {
+    return [parseBarEntry("spaces.tabs"), parseBarEntry("spaces.new-tab")]
+  }
+  return settings.widgets.map(parseBarEntry).filter(Boolean)
+}
+
+// Whether a bar header replaces the sidebar's own header (title + toggle):
+// true for the default `spaces.header`, or when a custom header sets
+// `sidebarHeader: false`.
+export function replacesSidebarHeader(header) {
+  if (!header) return false
+  return header.id === "spaces.header" || header.settings.sidebarHeader === false
+}
+
+// Whether the sidebar's header, its toggle and title, sits on the bar: when
+// the widget `id` comes first in the bar's left section, on a bar along the
+// top or bottom, and its configured header replaces the sidebar's own. With
+// something before it, as Omarchy's menu, the sidebar keeps its header.
+export function headerOnBar(config, id) {
+  if (!firstOnBar(config, id)) return false
+  const entry = config.layout.left[0]
+  return replacesSidebarHeader(barHeader(typeof entry === "object" ? entry : null))
+}
+
+// Expands a leading `~/` or `$HOME/` against `home`.
+export function expandPath(path, home) {
+  const value = String(path || "").trim()
+  if (!value) return ""
+  const base = String(home || "").replace(/\/$/, "")
+  if (value.startsWith("~/")) return base + value.slice(1)
+  if (value.startsWith("$HOME/")) return base + value.slice(5)
+  return value
+}
+
+// The file:// URL for a custom QML widget entry (`source` or `type: "qml"`),
+// defaulting to `~/.config/omarchy/bar/modules/<id>.qml` as Omarchy's bar does.
+export function customWidgetUrl(entry, home) {
+  if (!entry) return ""
+  const source = entry.source ? expandPath(entry.source, home) : ""
+  if (source) return fileUrl(source)
+  if (entry.settings && entry.settings.type === "qml" && entry.id && !entry.id.includes("..") && !entry.id.startsWith("/")) {
+    const base = String(home || "").replace(/\/$/, "")
+    return fileUrl(base + "/.config/omarchy/bar/modules/" + entry.id + ".qml")
+  }
+  return ""
+}
+
+// The label shown for a tab slot `1..10`, mapped through an optional
+// `slotLabels` array (1-indexed, e.g. Japanese numerals), or "" for no slot.
+export function slotLabel(slot, slotLabels) {
+  if (!(slot > 0)) return ""
+  if (Array.isArray(slotLabels)) {
+    const custom = slotLabels[slot - 1]
+    if (custom !== undefined && custom !== null && String(custom) !== "") return String(custom)
+  }
+  return String(slot)
+}
+
+// The text shown on a tab button: its slot (optionally custom) and label,
+// unless vertical or `showLabels === false`.
+export function tabLabel(tab, vertical, settings) {
+  const number = slotLabel(tab.slot, settings && settings.slotLabels)
+  if (vertical || (settings && settings.showLabels === false)) return number || "·"
+  return number + (number && tab.label ? " " : "") + (tab.label || (number ? "" : "·"))
 }
 
 // The bar's background, as Omarchy's shell config holds it: opaque, glassy

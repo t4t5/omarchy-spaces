@@ -12,6 +12,9 @@ Item {
   property string omarchyPath: ""
   property var shell: null
   property var manifest: null
+  // Injected by omarchy-shell: live snapshot of enabled bar widgets so the bar
+  // frame can host Omarchy widgets alongside Spaces' own.
+  property var barWidgetRegistry: null
 
   // Only the first time: the shell hands a kept service the new manifest after
   // an update, while this is still the old one's QML.

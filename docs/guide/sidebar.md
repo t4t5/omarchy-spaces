@@ -31,3 +31,27 @@ Put it before the tabs, and the sidebar draws its own header:
 ```sh
 omarchy plugin enable omarchy.menu --section left --index 0
 ```
+
+## Customizing the bar widget
+
+The `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` accepts `header` (in the recess over the rail) and `widgets` (sliding past the sidebar's edge). Without them, it defaults to `spaces.header` and `["spaces.tabs", "spaces.new-tab"]`.
+
+```json
+{
+  "id": "com.t4t5.spaces",
+  "header": { "id": "spaces.header", "title": "Spaces" },
+  "widgets": [
+    {
+      "id": "spaces.tabs",
+      "slotLabels": ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"],
+      "showLabels": false
+    },
+    "spaces.new-tab"
+  ]
+}
+```
+
+- **`header`**: `"spaces.header"` (accepts optional `icon`, `iconFont`, `title`), `false` to keep the header inside the sidebar, a registered Omarchy bar widget like `"omarchy.menu"`, or a custom QML file (`{ "id": "my-header", "type": "qml" }` or `{ "source": "~/.config/..." }`).
+- **`widgets`**: any mix of `"spaces.tabs"` (accepts `slotLabels`, `showLabels`, `showGaps`), `"spaces.new-tab"` (accepts `text`), simple registered Omarchy widgets like `"omarchy.spacer"`, or custom QML widgets (`type: "qml"` loads `~/.config/omarchy/bar/modules/<id>.qml`, or pass `source`).
+
+Custom QML widgets that declare `property var spaces` receive the live Spaces context (`model`, `space`, `tabs`, `cells`, `spaces`, `sidebar`, `controller`, `foreground`, `accent`, `hover`, `fontFamily`, `fontSize`, `toggleSidebar()`, `goToTab(idOrSlot)`, `newTab()`, `run(args)`).

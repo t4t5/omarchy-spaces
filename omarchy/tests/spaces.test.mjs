@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, headerOnBar, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
+import { cursorIndex, EMPTY, fileUrl, filterIcons, gridMove, isGlyph, isImageIcon, isVersionError, needsUpdate, parseEmojis, parseGlyphs, parseManifestVersion, badgeColor, firstOnBar, parseBarEntry, barHeader, barWidgets, replacesSidebarHeader, headerOnBar, expandPath, customWidgetUrl, slotLabel, tabLabel, closeTabWarning, fairCap, barLook, DEFAULT_PALETTE, monogram, themePalette, ease, filterRows, gapLeft, findTab, focusedMonitor, initialIndex, monitorNamed, nameInput, ordered, orderSettled, parseState, recessAlpha, renameCommand, rowActions, score, stepAction, statusColors, tabActions, windowMotion, startsDrag, dropIndex, dragShift, moveRow, tabDragOffset, tabDropIndex, reorderTabs, sameTabs, tabCells, tabGaps, tabShifts } from "../Spaces.mjs"
 
 // A line of `space watch`, with a tab on each of two monitors.
 const line = (spaces, more) => JSON.stringify({ version: 2, space: "0.1.0", focused: "eDP-1", monitors: [
@@ -241,9 +241,14 @@ test("reads the bar's background look", () => {
 
 test("reads whether the sidebar's header is on the bar", () => {
   const id = "com.t4t5.spaces"
+  assert.equal(firstOnBar({ layout: { left: [{ id }] } }, id), true)
+  assert.equal(firstOnBar({ layout: { left: [id] } }, id), true)
   assert.equal(headerOnBar({ layout: { left: [{ id }] } }, id), true)
   assert.equal(headerOnBar({ layout: { left: [{ id }, { id: "omarchy.menu" }] } }, id), true)
   assert.equal(headerOnBar({ position: "bottom", layout: { left: [{ id }] } }, id), true)
+  assert.equal(headerOnBar({ layout: { left: [{ id, header: false }] } }, id), false, "header disabled")
+  assert.equal(headerOnBar({ layout: { left: [{ id, header: "omarchy.menu" }] } }, id), false, "non-toggle header keeps sidebar toggle")
+  assert.equal(headerOnBar({ layout: { left: [{ id, header: { id: "custom", sidebarHeader: false } }] } }, id), true, "custom header opting in")
   assert.equal(headerOnBar({ layout: { left: [{ id: "omarchy.menu" }, { id }] } }, id), false, "the menu has the corner")
   assert.equal(headerOnBar({ position: "left", layout: { left: [{ id }] } }, id), false, "a vertical bar")
   assert.equal(headerOnBar({ position: "right", layout: { left: [{ id }] } }, id), false, "a vertical bar")
@@ -251,6 +256,56 @@ test("reads whether the sidebar's header is on the bar", () => {
   assert.equal(headerOnBar({ layout: { left: [null, { id }] } }, id), false)
   assert.equal(headerOnBar({ layout: { left: [] } }, id), false)
   assert.equal(headerOnBar(null, id), false)
+})
+
+test("parses bar header and widgets config with sensible defaults", () => {
+  assert.deepEqual(parseBarEntry("spaces.tabs"), { id: "spaces.tabs", settings: {}, source: "" })
+  assert.deepEqual(parseBarEntry({ id: "spaces.tabs", showLabels: false }), { id: "spaces.tabs", settings: { showLabels: false }, source: "" })
+  assert.deepEqual(parseBarEntry({ source: "~/tabs.qml" }), { id: "", settings: { source: "~/tabs.qml" }, source: "~/tabs.qml" })
+  assert.equal(parseBarEntry(""), null)
+  assert.equal(parseBarEntry({}), null)
+
+  assert.deepEqual(barHeader(null), { id: "spaces.header", settings: {}, source: "" })
+  assert.deepEqual(barHeader({}), { id: "spaces.header", settings: {}, source: "" })
+  assert.equal(barHeader({ header: false }), null)
+  assert.equal(barHeader({ header: null }), null)
+  assert.equal(barHeader({ header: "" }), null)
+  assert.deepEqual(barHeader({ header: "omarchy.menu" }), { id: "omarchy.menu", settings: {}, source: "" })
+  assert.equal(replacesSidebarHeader(barHeader({})), true)
+  assert.equal(replacesSidebarHeader(barHeader({ header: "omarchy.menu" })), false)
+  assert.equal(replacesSidebarHeader(barHeader({ header: { id: "my-logo", sidebarHeader: false } })), true)
+
+  assert.deepEqual(barWidgets(null).map((w) => w.id), ["spaces.tabs", "spaces.new-tab"])
+  assert.deepEqual(barWidgets({ widgets: ["spaces.tabs"] }).map((w) => w.id), ["spaces.tabs"])
+  assert.deepEqual(barWidgets({ widgets: [] }), [])
+  assert.deepEqual(barWidgets({ widgets: [{ id: "spaces.tabs", showLabels: false }, null, ""] }), [
+    { id: "spaces.tabs", settings: { showLabels: false }, source: "" },
+  ])
+})
+
+test("resolves custom QML widget URLs", () => {
+  assert.equal(expandPath("~/bar/jp.qml", "/home/u"), "/home/u/bar/jp.qml")
+  assert.equal(expandPath("$HOME/bar/jp.qml", "/home/u/"), "/home/u/bar/jp.qml")
+  assert.equal(expandPath("/abs/jp.qml", "/home/u"), "/abs/jp.qml")
+  assert.equal(customWidgetUrl(parseBarEntry({ id: "jp", source: "~/bar/jp.qml" }), "/home/u"), "file:///home/u/bar/jp.qml")
+  assert.equal(customWidgetUrl(parseBarEntry({ id: "jp", type: "qml" }), "/home/u"), "file:///home/u/.config/omarchy/bar/modules/jp.qml")
+  assert.equal(customWidgetUrl(parseBarEntry({ id: "../evil", type: "qml" }), "/home/u"), "")
+  assert.equal(customWidgetUrl(parseBarEntry("omarchy.menu"), "/home/u"), "")
+})
+
+test("formats tab slots and labels with optional custom slot labels", () => {
+  const kanji = ["一", "二", "三", "四", "五"]
+  assert.equal(slotLabel(1), "1")
+  assert.equal(slotLabel(2, kanji), "二")
+  assert.equal(slotLabel(6, kanji), "6", "falls back past the list")
+  assert.equal(slotLabel(0, kanji), "")
+
+  const tab = { slot: 2, label: "claude" }
+  assert.equal(tabLabel(tab, false, {}), "2 claude")
+  assert.equal(tabLabel(tab, false, { slotLabels: kanji }), "二 claude")
+  assert.equal(tabLabel(tab, false, { slotLabels: kanji, showLabels: false }), "二")
+  assert.equal(tabLabel(tab, true, { slotLabels: kanji }), "二")
+  assert.equal(tabLabel({ slot: 0, label: "" }, false, { showLabels: false }), "·")
 })
 
 test("offers rename, an icon and close, saying why close doesn't apply", () => {
