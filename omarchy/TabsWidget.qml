@@ -17,9 +17,9 @@ import "Spaces.mjs" as Spaces
 // opens.
 //
 // The `tabs` slot (Spaces.tabsSlot) shows Spaces' own tabs, set by the `tabs`
-// key (`false` leaves the slot empty), or the bar widget or custom QML module
-// in `tabsWidget`, which gets the bar, its settings, `maxWidth`, and `spaces`
-// (below), as one on the bar does.
+// key (`false` hides them), or the bar widget or custom QML module in
+// `tabsWidget` (which wins if both are set), getting the bar, its settings,
+// `maxWidth`, and `spaces` (below), as one on the bar does.
 BarWidget {
   id: root
   moduleName: "com.t4t5.spaces"

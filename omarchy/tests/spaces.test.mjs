@@ -270,7 +270,8 @@ test("reads the tabs slot from its two keys", () => {
   assert.deepEqual(tabsSlot({}), own)
   assert.deepEqual(tabsSlot({ tabs: null }), own, "null is unset")
   assert.deepEqual(tabsSlot({ tabs: false }), { ...own, shown: false })
-  assert.deepEqual(tabsSlot({ tabs: false, tabsWidget: "io.github.someone.tabs" }), { ...own, shown: false }, "false hides any widget too")
+  assert.deepEqual(tabsSlot({ tabs: false, tabsWidget: "io.github.someone.tabs" }),
+    { ...own, shown: false, widget: { id: "io.github.someone.tabs", settings: {} } }, "tabsWidget wins over tabs: false")
   assert.deepEqual(tabsSlot({ tabs: { numerals: ["一"], labels: false } }), { ...own, settings: { numerals: ["一"], labels: false } })
   assert.deepEqual(tabsSlot({ tabsWidget: "io.github.someone.tabs" }), { ...own, widget: { id: "io.github.someone.tabs", settings: {} } })
   assert.deepEqual(tabsSlot({ tabsWidget: { source: "~/Tabs.qml", compact: true } }),

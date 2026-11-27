@@ -41,8 +41,8 @@ Spaces' own tabs:
 To replace them, set `tabsWidget` to a widget entry, written as in the bar's own layout:
 - A registered bar widget by id: `"tabsWidget": "io.github.someone.kanji-tabs"`. Also add `{ "id": "io.github.someone.kanji-tabs" }` to the top-level `plugins` list, or the shell won't load it.
 - A custom QML widget: `"tabsWidget": { "id": "my-tabs", "type": "qml" }` (loads `~/.config/omarchy/bar/modules/my-tabs.qml`) or `{ "source": "~/path/MyTabs.qml" }`. Other keys become its `settings`.
-- `"tabs": false` hides the tabs, and any `tabsWidget` with them.
-- Until a widget loads, the slot shows Spaces' own.
+- `"tabs": false` hides Spaces' own tabs (if `tabsWidget` is also set, `tabsWidget` still shows, with no fallback to Spaces' own tabs).
+- Until a widget loads, the slot shows Spaces' own unless `"tabs": false`.
 
 A widget in `tabsWidget` is an ordinary bar widget (`bar`, `moduleName`, `settings`), plus `maxWidth` (room before the clock) and `spaces`: `version` (now `1`; it goes up when a field changes or goes, so check it), `space` (`{ id, label, named, icon, status }`), `tabs` (`{ id, slot, label, named, status, active }`), `sidebarOpen` (on this screen), `renaming`, `renameText`, `renameSelected`, `goToTab(idOrNumber)`, `newTab()`, `renameTab(id)`, `reorderTab(id, position)`, `openTabMenu(id, x, y)` (window coordinates from `mapToItem(null, x, y)`), `toggleSidebar()`. Treat ids as opaque. These properties are assigned once the widget loads, so bind to them rather than marking them `required` or reading them in `Component.onCompleted`. Set `textFormat: Text.PlainText` on any `Text` showing tab or space names. A new or edited `.qml` file may need `omarchy restart shell` before it loads.
 

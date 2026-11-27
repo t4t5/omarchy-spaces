@@ -38,7 +38,7 @@ The tabs sit past the sidebar's edge, and two keys on the `com.t4t5.spaces` entr
 
 ### Spaces' own tabs
 
-`tabs` holds their settings. Leave it out for the defaults, or set it to `false` to hide the tabs (and any `tabsWidget` with them):
+`tabs` holds their settings. Leave it out for the defaults, or set it to `false` to hide Spaces' own tabs:
 
 ```json
 {
@@ -67,7 +67,7 @@ The tabs sit past the sidebar's edge, and two keys on the `com.t4t5.spaces` entr
 ```
 
 - A plugin's widget is only loaded while its id appears in `shell.json`'s layout or `plugins` list, and Spaces' entry doesn't count. Add it to `plugins` as well: `"plugins": [{ "id": "io.github.someone.kanji-tabs" }]`.
-- Until the widget loads, or if it never does, the slot shows Spaces' own.
+- Until the widget loads, or if it never does, the slot shows Spaces' own (unless `tabs` is `false`).
 - Widgets get the bar's API that Spaces has. Omarchy's own widgets that rely on the bar's services may not work in the slot.
 
 ### Writing a tabs widget

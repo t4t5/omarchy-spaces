@@ -580,17 +580,17 @@ export function parseBarEntry(entry) {
 }
 
 // The `tabs` slot as Spaces' `settings` set it: `{ shown, settings, widget,
-// misplaced }`. `settings` are Spaces' own tabs' (`tabs`, when it's an object),
-// and `widget` the entry in `tabsWidget`, or null for Spaces' own. `misplaced`
-// says `tabs` looks like a widget entry, which goes in `tabsWidget`.
+// misplaced }`. `shown` is whether Spaces' own tabs may show (`tabs !== false`),
+// `settings` are Spaces' own tabs' (`tabs`, when it's an object), and `widget`
+// is the entry in `tabsWidget`, or null. `tabsWidget` wins over `tabs: false`.
+// `misplaced` says `tabs` looks like a widget entry, which goes in `tabsWidget`.
 export function tabsSlot(settings) {
   const tabs = settings ? settings.tabs : undefined
-  const shown = tabs !== false
   const plain = !!tabs && typeof tabs === "object" && !Array.isArray(tabs)
   return {
-    shown,
+    shown: tabs !== false,
     settings: plain ? tabs : {},
-    widget: shown && settings ? parseBarEntry(settings.tabsWidget) : null,
+    widget: settings ? parseBarEntry(settings.tabsWidget) : null,
     misplaced: typeof tabs === "string" || (plain && ("id" in tabs || "source" in tabs || "type" in tabs)),
   }
 }
