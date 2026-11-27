@@ -3741,6 +3741,27 @@ fn caller_context_resolves_live_window_and_falls_back_to_env() {
     assert_eq!(from_env["source"], "env");
     assert_eq!(from_env["focused"]["space"], "s2");
 
+    // From inside s1 with no window to tell its tab by, a tab command needs
+    // the tab's id, rather than acting on the tab you're looking at in s2.
+    for args in [
+        &["tab", "close"][..],
+        &["tab", "rename", "oops"],
+        &["tab", "send", "home"],
+    ] {
+        let out = env.command(args).env("SPACE_ID", "s1").output().unwrap();
+        assert!(!out.status.success(), "space {args:?} should have failed");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("can't tell which tab of s1"),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let list: Value = serde_json::from_str(&env.ok(&["ls", "--json"])).unwrap();
+    let s2 = &list["spaces"].as_array().unwrap()[2];
+    assert_eq!((&s2["id"], &s2["windows"]), (&json!("s2"), &json!(1)));
+    assert_eq!(s2["tabs"][0]["named"], false);
+    assert_eq!(env.active(), "s2:1");
+
     let stale = env
         .command(&["current", "--json"])
         .env("SPACE_ID", "s99")
@@ -3956,27 +3977,31 @@ fn note_and_meta_round_trip_through_ls_and_restore() {
 }
 
 #[test]
-fn events_streams_snapshot_and_typed_diffs_readonly() {
+fn events_come_from_the_watch_and_agree_with_it() {
     use std::time::Duration;
 
     let env = Env::new();
     let app = env.dir("app");
+
+    // Before there's a watch, `space events` waits for one.
     let stream = Watch::run(env.command(&["events"]));
-    let first = stream.next_state(Duration::from_secs(2));
+    assert!(
+        stream
+            .lines
+            .recv_timeout(Duration::from_millis(300))
+            .is_err()
+    );
+    let watch = Watch::start(&env);
+    let first = stream.next_state(Duration::from_secs(3));
     assert_eq!(first["version"], 1);
-    assert_eq!(first["seq"], 1);
     assert_eq!(first["type"], "snapshot");
     assert_eq!(first["focused"]["space"], "home");
     assert_eq!(first["spaces"].as_array().unwrap().len(), 1);
-    stream.joined(&env);
-
-    // Strictly read-only: must not create session.json or spaces.json.
-    assert!(!env.state().join("session.json").exists());
-    assert!(!env.state().join("spaces.json").exists());
+    watch.joined(&env);
 
     let collect_until = |stream: &Watch, want: &str| -> Vec<Value> {
         let mut seen = Vec::new();
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(3);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             let ev = stream.next_state(left);
             let done = ev["type"] == want;
@@ -4002,6 +4027,9 @@ fn events_streams_snapshot_and_typed_diffs_readonly() {
     assert_eq!(focused["space"], "s1");
     assert_eq!(focused["previous"], "home");
     assert_eq!(focused["tab"], "s1:1");
+    // Each change counts up by one from the snapshot.
+    let seqs: Vec<u64> = evs.iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+    assert_eq!(seqs, (1..=seqs.len() as u64).collect::<Vec<_>>());
 
     // Mutate note & meta -> space.changed with changed fields.
     env.ok(&["note", "s1", "hello"]);
@@ -4026,7 +4054,7 @@ fn events_streams_snapshot_and_typed_diffs_readonly() {
             .contains(&json!("meta"))
     );
 
-    // Agent status transitions -> status.changed (working -> done -> null on focus).
+    // Agent status transitions -> status.changed (working -> done).
     env.set_active("1");
     env.event("workspacev2>>1,1");
     env.event("activewindowv2>>");
@@ -4046,17 +4074,54 @@ fn events_streams_snapshot_and_typed_diffs_readonly() {
     assert_eq!(st["status"], "done");
     assert_eq!(st["previous"], "working");
 
-    // Still read-only: session.json was never written by `space events`.
-    assert!(!env.state().join("session.json").exists());
+    // A subscriber that joins after the agent finished still sees it done,
+    // as the sidebar does: the watch is what knows.
+    let late = Watch::run(env.command(&["events"]));
+    let snapshot = late.next_state(Duration::from_secs(3));
+    assert_eq!(snapshot["type"], "snapshot");
+    let s1 = snapshot["spaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == "s1")
+        .unwrap();
+    assert_eq!(s1["status"], "done");
+    assert_eq!(s1["terminals"][0]["status"], "done");
+
+    // Focusing it clears `done` for both.
+    env.event(&format!("activewindowv2>>{}", w1.trim_start_matches("0x")));
+    for stream in [&stream, &late] {
+        let st = collect_until(stream, "status.changed").pop().unwrap();
+        assert_eq!(
+            (&st["status"], &st["previous"]),
+            (&Value::Null, &json!("done"))
+        );
+    }
 
     // Filtered stream with --no-snapshot and --type.
     let filtered = Watch::run(env.command(&["events", "--no-snapshot", "--type", "space.changed"]));
-    filtered.joined(&env);
+    // It's connected once the watch has a third subscriber; nothing shows it,
+    // so give it a moment.
+    thread::sleep(Duration::from_millis(300));
     env.ok(&["note", "s1", "filtered"]);
-    let ev = filtered.next_state(Duration::from_secs(2));
-    assert_eq!(ev["seq"], 1);
+    let ev = filtered.next_state(Duration::from_secs(3));
     assert_eq!(ev["type"], "space.changed");
     assert_eq!(ev["space"]["note"], "filtered");
+    assert!(ev["seq"].as_u64().unwrap() > 1, "the watch's count: {ev}");
+
+    // The watch restarts, as the plugin restarts it: a new snapshot comes.
+    drop(watch);
+    let watch = Watch::start(&env);
+    let again = collect_until(&stream, "snapshot").pop().unwrap();
+    assert_eq!(again["seq"], 0, "a new watch counts from 0");
+    assert!(
+        again["spaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["note"] == "filtered")
+    );
+    drop(watch);
 
     // Invalid --type fails immediately with a clear error.
     assert!(

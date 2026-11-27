@@ -515,8 +515,10 @@ fn shown_id(ws_id: i64, ws_name: &str) -> String {
     }
 }
 
-/// The tab given by its id, or with none, the caller's tab if invoked from
-/// inside a space window, else the one you are on.
+/// The tab given by its id, or with none, the tab of the window the command
+/// was run from, else the one you are on. Run from inside a space with no
+/// window to tell its tab by (`SPACE_ID` alone, as in tmux), it needs the id:
+/// the one you are on may be another space's, or another tab of this one.
 fn tab_or_active(
     hypr: &Hypr,
     rows: &[Row],
@@ -532,11 +534,16 @@ fn tab_or_active(
             })?;
             (space.to_string(), key)
         }
-        None => match seen
-            .and_then(|(snapshot, live)| context::resolve(snapshot, Some(live)))
-            .and_then(|caller| Some((caller.space, caller.tab_key?)))
-        {
-            Some(caller) => caller,
+        None => match seen.and_then(|(snapshot, live)| context::resolve(snapshot, Some(live))) {
+            Some(caller) => {
+                let key = caller.tab_key.with_context(|| {
+                    format!(
+                        "can't tell which tab of {} this was run from: give its id, as `space ls --json` shows it",
+                        caller.space
+                    )
+                })?;
+                (caller.space, key)
+            }
             None => (
                 here.space().to_string(),
                 here.key().context("you aren't on a tab")?,

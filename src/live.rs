@@ -335,7 +335,7 @@ pub(crate) type Seen = (Snapshot, Live);
 pub(crate) fn inspect(hypr: &Hypr) -> Result<Seen> {
     let snapshot = snapshot(hypr)?;
     let mut live = live_from(&snapshot, |window| terminal::shell(window.place, None));
-    // Only `watch` and `events` follow agents, to know which are done, and seen.
+    // Only `watch` follows agents, to know which are done, and seen.
     live.set_statuses(|_| true);
     Ok((snapshot, live))
 }
@@ -557,12 +557,6 @@ pub(crate) fn rows(store: &mut Store, live: Option<&Live>, last: &Last) -> Vec<R
         out.push(row(&id, label, named, icon, note, meta, folder, tabs));
     }
     out
-}
-
-/// Like `rows`, without modifying `store` or touching disk.
-pub(crate) fn rows_readonly(store: &Store, live: Option<&Live>, last: &Last) -> Vec<Row> {
-    let mut copy = store.detached();
-    rows(&mut copy, live, last)
 }
 
 /// Reads the spaces and saves what changed about them. A failure to save is

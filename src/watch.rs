@@ -41,7 +41,7 @@ use crate::restore;
 use crate::session;
 use crate::spaces::Store;
 use crate::state::Last;
-use crate::{sound, status, terminal, view};
+use crate::{events, sound, status, terminal, view};
 
 /// How often the active space's terminals' shells are read.
 const FAST: Duration = Duration::from_millis(200);
@@ -104,6 +104,12 @@ pub fn watch(sounds: bool) -> Result<()> {
     let mut again_at: Option<Instant> = None;
     let mut printed = String::new();
     let mut out = std::io::stdout().lock();
+    // What `space events` reads. A convenience too: the watch goes on
+    // without it, and without it when another watch already serves them.
+    let hub = events::Hub::serve(&events::socket())
+        .inspect_err(|e| eprintln!("space: warning: {e:#}"))
+        .ok()
+        .flatten();
 
     loop {
         let now = Instant::now();
@@ -220,6 +226,9 @@ pub fn watch(sounds: bool) -> Result<()> {
         {
             eprintln!("space: warning: {e:#}");
         }
+        if let Some(hub) = &hub {
+            hub.publish(events::State::of(&snapshot, &live, &rows));
+        }
         let json = serde_json::to_string(&view::state(&snapshot, &live, &rows))?;
         if json != printed {
             // Nobody reading any more: done.
@@ -289,7 +298,7 @@ fn refresh(hypr: &Hypr, snapshot: &mut live::Snapshot) {
 
 /// What a Hyprland event can change about the spaces, least to most.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Change {
+enum Change {
     Nothing,
     /// A title changed, which terminals do on `cd` and as a command starts:
     /// read their shells.
@@ -301,7 +310,7 @@ pub(crate) enum Change {
 }
 
 impl Change {
-    pub(crate) fn of(event: &str) -> Self {
+    fn of(event: &str) -> Self {
         let name = event.split_once(">>").map_or(event, |(name, _)| name);
         match name {
             "windowtitle" | "windowtitlev2" => Change::Folders,
@@ -317,7 +326,7 @@ impl Change {
 }
 
 /// Notes the focused window from Hyprland's events.
-pub(crate) fn follow(event: &str, focused: &mut Option<String>) {
+fn follow(event: &str, focused: &mut Option<String>) {
     if let Some(("activewindowv2", data)) = event.split_once(">>") {
         // The events give addresses without Hyprland's `0x`.
         let data = data.trim().trim_start_matches("0x");
@@ -334,14 +343,14 @@ fn read_config() -> Option<Config> {
 
 /// When a file last changed, and its size, to notice another `space`
 /// writing it.
-pub(crate) fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
+fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
     let meta = std::fs::metadata(path).ok()?;
     Some((meta.modified().ok()?, meta.len()))
 }
 
 /// Whether this program's binary has been replaced since it started, as
 /// `cargo install` does: the kernel marks the running one deleted.
-pub(crate) fn replaced() -> bool {
+fn replaced() -> bool {
     std::fs::read_link("/proc/self/exe")
         .is_ok_and(|exe| exe.to_string_lossy().ends_with(" (deleted)"))
 }

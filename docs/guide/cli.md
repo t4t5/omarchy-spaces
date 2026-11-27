@@ -64,7 +64,9 @@ A space can be given by what it's called or by its id (`s1`, as `space ls` shows
 
 A tab is given by its id, as `space ls --json` shows it. `space tab go 2` goes to the tab that shows as 2 on the monitor you are on. In a space, a number past the last tab goes to a new one after it, as tabs have no gaps.
 
-When a space or tab is omitted from a mutating command (`rename`, `icon`, `note`, `meta`, `close`, `tab new`, `tab rename`, `tab close`, `tab send`), `space` resolves where it was invoked from by walking `/proc` to find its live Hyprland window (falling back to the `SPACE_ID` environment variable that `space` injects into launched terminals, and finally to the focused workspace). This means keybinds and interactive terminals act where you are focused, while an agent or background script running in another space acts on its own space instead of hijacking focus. Use `space current --json` to inspect both the caller's location and the focused workspace.
+A command given no space or tab (`rename`, `icon`, `note`, `meta`, `close`, `tab new`, `tab rename`, `tab close`, `tab send`) acts on the one it was run from: the space and tab of the window it was run in, found through `/proc`. Run from a key binding or the launcher, which aren't in a window, it acts where you are. So an agent working in another space changes its own space, not the one you're looking at.
+
+A terminal that Spaces opens has `SPACE_ID` set to its space, for when there's no window to go by, as in tmux. That tells the space but not the tab, so there a tab command needs the tab's id rather than acting on the tab you're on. `space current --json` shows where a command would act, and where you are.
 
 ## JSON for scripts
 
@@ -72,20 +74,28 @@ When a space or tab is omitted from a mutating command (`rename`, `icon`, `note`
 
 - A space has its `note`, `meta`, `tabs` (each with its `id`, for commands, and its `slot`, the number it shows on its `monitor`, or `null` for none), and `terminals`.
 - A terminal's `tab` is its tab's id.
-- `status` is `working`, `waiting` or `null`. Live `done` transitions are tracked by `space events` and the plugin.
+- `status` is `working`, `waiting` or `null`. Only `space watch`, which follows agents, can tell that one is done: `space events` says so.
 - `version` goes up only when a change would break a script. New fields can come without.
 
 Pass a tab's id as it is rather than reading or making one up: what it's made of can change, and moving a tab gives it another.
 
-## Events stream
+## Events
 
-`space events` is a public, read-only NDJSON event stream that never writes `spaces.json` or `session.json`, so any number of scripts or tools can subscribe at once. Each line has `{ version, seq, type, ... }`:
+`space events` prints a line of JSON each time something changes, for scripts to follow. Each line has its `version`, `seq` and `type`:
 
-- `snapshot` — emitted first (unless `--no-snapshot`), carrying `focused` (`{ space, tab }`) and `spaces` in the same schema as `space ls --json`.
-- `space.created` / `space.removed` — a space appeared or disappeared.
-- `space.focused` — focus moved to another space (`space`, `previous`, `tab`).
-- `space.changed` — a space's fields changed (`space`, `changed`: list of changed field names such as `label`, `note`, `meta`, `status`).
-- `tab.created` / `tab.removed` / `tab.changed` — a tab came, went, or changed (`space`, `tab`, and `changed` for updates).
-- `status.changed` — an agent's status transitioned in a terminal (`space`, `tab`, `address`, `program`, `status`, `previous`).
+- `snapshot` comes first, with `focused` (`{ space, tab }`) and `spaces`, as `space ls --json` prints them. `--no-snapshot` leaves it out.
+- `space.created` and `space.removed`: a space came or went.
+- `space.focused`: you went to another space (`space`, `previous`, `tab`).
+- `space.changed`: something about a space changed (`space`, and `changed`, the fields that did, like `label`, `note`, `meta` or `status`).
+- `tab.created`, `tab.removed` and `tab.changed`: a tab came, went, or changed (`space`, `tab`, and `changed`).
+- `status.changed`: an agent in a terminal started or stopped working, waiting or being done (`space`, `tab`, `address`, `program`, `status`, `previous`).
 
-Filter by comma-separated event types with `--type space.created,status.changed`. `space watch` remains private to the Omarchy shell plugin and changes with it.
+`--type space.created,status.changed` prints only those types.
+
+The events come from `space watch`, which the plugin runs, so they say what the sidebar shows, `done` included. Without a watch, `space events` waits for one. When the watch restarts, as it does when `space` is updated, another `snapshot` comes, as things may have changed in between.
+
+A snapshot's `seq` is that of the last change it takes in, and each change after it counts up by one, so a line `--type` leaves out shows as a gap. A new watch counts from 0 again.
+
+A tab that moves, or is numbered again when one before it closes, gets another id, so it shows as one tab removed and another created.
+
+`space watch` prints what the plugin reads, for it alone: that changes with the plugin.

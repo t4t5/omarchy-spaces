@@ -1,39 +1,46 @@
-//! `space events`: a public, strictly read-only NDJSON event stream for scripts,
-//! hooks, notification bridges, and agents. Emits an initial `snapshot` event
-//! (using the same space/tab/terminal schema as `space ls --json`), followed by
-//! typed diff events (`space.created`, `space.removed`, `space.focused`,
-//! `space.changed`, `tab.created`, `tab.removed`, `tab.changed`,
-//! `status.changed`) whenever state changes.
+//! `space events`: what changes about the spaces, as a line of JSON for each
+//! change, for scripts, hooks and agents. The first line is a `snapshot` of
+//! them all, in `space ls --json`'s shape; then come `space.created`,
+//! `space.removed`, `space.focused`, `space.changed`, `tab.created`,
+//! `tab.removed`, `tab.changed` and `status.changed`.
 //!
-//! Unlike `space watch`, `space events` never locks or writes `spaces.json` or
-//! `session.json`, so any number of subscribers can run concurrently.
+//! `space watch`, which the plugin runs, makes them: it already reads all
+//! there is to know, and it alone follows which agents are done and seen, so
+//! the events say what the sidebar shows. It serves them on a socket
+//! (`Hub`), and `space events` reads them from it. When the watch restarts,
+//! `space events` waits for the next one, whose first line is a new
+//! snapshot.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::Write;
-use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::{Duration, Instant};
+use std::collections::{BTreeMap, HashSet};
+use std::io::{BufRead, BufReader, ErrorKind, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use anyhow::{Result, bail};
-use serde::Serialize;
+use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
 
-use crate::hypr::Hypr;
 use crate::list::{self, List, Space, Tab, Terminal};
-use crate::live;
+use crate::live::{Live, Row, Snapshot};
 use crate::name;
 use crate::paths;
-use crate::spaces::Store;
-use crate::state::Last;
-use crate::status::{self, Status};
-use crate::terminal;
-use crate::watch::{Change, follow, replaced, stamp};
+use crate::status::Status;
 
-/// Event schema version. Goes up only on breaking changes; new event types or
-/// fields do not bump it.
+/// Goes up only when a change would break a script. New event types or
+/// fields don't.
 const VERSION: u32 = 1;
 
-const FAST: Duration = Duration::from_millis(200);
-const SLOW: Duration = Duration::from_secs(2);
-const SETTLE: Duration = Duration::from_millis(20);
+/// How often `space events` looks for a watch to come back.
+const RETRY: Duration = Duration::from_millis(200);
+
+/// How long a line can wait for its reader before the reader is dropped.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How many lines a subscriber can fall behind before it's dropped, so a
+/// reader that stops reading never holds the watch up.
+const BACKLOG: usize = 1024;
 
 /// All event type names accepted by `--type`.
 pub const ALL_TYPES: &[&str] = &[
@@ -48,9 +55,9 @@ pub const ALL_TYPES: &[&str] = &[
     "status.changed",
 ];
 
-enum Message {
-    Hyprland(String),
-    HyprlandGone,
+/// Where the watch serves the events: `$XDG_RUNTIME_DIR/omarchy-spaces/events.sock`.
+pub fn socket() -> PathBuf {
+    paths::runtime_dir().join("events.sock")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -59,19 +66,33 @@ struct Focused {
     tab: Option<String>,
 }
 
-/// Canonical state captured at one moment, used for diffing consecutive ticks.
+/// All of it as of one moment, which the events are the differences between.
 #[derive(Debug, Clone, PartialEq)]
-struct State {
+pub(crate) struct State {
     focused: Focused,
     list: List,
 }
 
+impl State {
+    /// What the watch has just read, with agents' statuses as it follows them.
+    pub(crate) fn of(snapshot: &Snapshot, live: &Live, rows: &[Row]) -> Self {
+        let space = snapshot.active().map(str::to_string);
+        let tab = space
+            .as_deref()
+            .and_then(|space| Some(name::tab_id(space, snapshot.active_tab()?)));
+        Self {
+            focused: Focused { space, tab },
+            list: list::list(rows, Some((snapshot, live))),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
-struct Envelope {
+struct Envelope<'a> {
     version: u32,
     seq: u64,
     #[serde(flatten)]
-    payload: Payload,
+    payload: &'a Payload,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -119,6 +140,7 @@ enum Payload {
 }
 
 impl Payload {
+    #[cfg(test)]
     fn kind(&self) -> &'static str {
         match self {
             Payload::Snapshot { .. } => "snapshot",
@@ -132,6 +154,162 @@ impl Payload {
             Payload::StatusChanged { .. } => "status.changed",
         }
     }
+
+    fn snapshot(state: &State) -> Self {
+        Payload::Snapshot {
+            focused: state.focused.clone(),
+            spaces: state.list.spaces.clone(),
+        }
+    }
+}
+
+/// A line as it goes out, `seq` being the last change it takes in.
+fn line(seq: u64, payload: &Payload) -> Arc<str> {
+    let envelope = Envelope {
+        version: VERSION,
+        seq,
+        payload,
+    };
+    // Plain data: it always serializes.
+    serde_json::to_string(&envelope)
+        .expect("events serialize")
+        .into()
+}
+
+/// What the watch serves `space events` from.
+pub struct Hub {
+    path: PathBuf,
+    inner: Arc<Mutex<Inner>>,
+}
+
+#[derive(Default)]
+struct Inner {
+    /// The last change sent.
+    seq: u64,
+    /// As of the last change, for a new subscriber's snapshot. `None` until
+    /// the watch has first read it all.
+    state: Option<State>,
+    subscribers: Vec<Subscriber>,
+}
+
+struct Subscriber {
+    lines: SyncSender<Arc<str>>,
+    /// Joined before there was anything to show it: its snapshot is due.
+    fresh: bool,
+}
+
+impl Hub {
+    /// Listens on `path`, unless another watch is already serving there, as
+    /// when you run one beside the plugin's: then `None`, and that one goes
+    /// on serving.
+    pub fn serve(path: &Path) -> Result<Option<Hub>> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("can't make {}", paths::tilde(dir)))?;
+        }
+        if UnixStream::connect(path).is_ok() {
+            return Ok(None);
+        }
+        // Left by a watch that didn't get to tidy up.
+        match std::fs::remove_file(path) {
+            Err(e) if e.kind() != ErrorKind::NotFound => {
+                return Err(e).with_context(|| format!("can't replace {}", paths::tilde(path)));
+            }
+            _ => {}
+        }
+        let listener = UnixListener::bind(path)
+            .with_context(|| format!("can't listen on {}", paths::tilde(path)))?;
+        let inner = Arc::new(Mutex::new(Inner::default()));
+        let shared = Arc::clone(&inner);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                join(&shared, stream);
+            }
+        });
+        Ok(Some(Hub {
+            path: path.to_path_buf(),
+            inner,
+        }))
+    }
+
+    /// Sends each subscriber what changed since the last `next`, or, to one
+    /// that just joined, all of it.
+    pub(crate) fn publish(&self, next: State) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if inner.state.as_ref() == Some(&next) {
+            return;
+        }
+        let changes = match &inner.state {
+            Some(before) => diff(before, &next),
+            None => Vec::new(),
+        };
+        let first = inner.seq + 1;
+        inner.seq += changes.len() as u64;
+        if inner.subscribers.is_empty() {
+            inner.state = Some(next);
+            return;
+        }
+        let lines: Vec<Arc<str>> = (first..)
+            .zip(&changes)
+            .map(|(seq, payload)| line(seq, payload))
+            .collect();
+        let snapshot = inner
+            .subscribers
+            .iter()
+            .any(|s| s.fresh)
+            .then(|| line(inner.seq, &Payload::snapshot(&next)));
+        inner.subscribers.retain_mut(|subscriber| {
+            if subscriber.fresh {
+                subscriber.fresh = false;
+                return send(subscriber, snapshot.iter());
+            }
+            send(subscriber, lines.iter())
+        });
+        inner.state = Some(next);
+    }
+}
+
+impl Drop for Hub {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// A new subscriber: it's sent all of it as it stands, then each change, by
+/// a thread of its own, so a slow reader slows only itself.
+fn join(inner: &Mutex<Inner>, stream: UnixStream) {
+    let (lines, queued) = mpsc::sync_channel::<Arc<str>>(BACKLOG);
+    // A reader that has stopped reading is let go of in the end.
+    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
+    std::thread::spawn(move || {
+        let mut out = stream;
+        for line in queued {
+            if writeln!(out, "{line}").is_err() {
+                return;
+            }
+        }
+    });
+    let mut inner = inner.lock().unwrap_or_else(|e| e.into_inner());
+    let mut subscriber = Subscriber { lines, fresh: true };
+    if let Some(state) = &inner.state {
+        let snapshot = line(inner.seq, &Payload::snapshot(state));
+        subscriber.fresh = false;
+        if !send(&subscriber, std::iter::once(&snapshot)) {
+            return;
+        }
+    }
+    inner.subscribers.push(subscriber);
+}
+
+/// Queues `lines` for a subscriber; `false` once it's gone or too far behind.
+fn send<'a>(subscriber: &Subscriber, lines: impl Iterator<Item = &'a Arc<str>>) -> bool {
+    for line in lines {
+        match subscriber.lines.try_send(Arc::clone(line)) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => return false,
+        }
+    }
+    true
 }
 
 /// Validates and parses `--type` filters. `None` means emit all event types.
@@ -161,195 +339,52 @@ fn parse_filter(types: Option<Vec<String>>) -> Result<Option<HashSet<String>>> {
     Ok(Some(allowed))
 }
 
-/// Runs the read-only event stream until stdout closes, Hyprland exits, or
-/// the `space` binary is replaced.
+/// Just the type of a line, to filter it by.
+#[derive(Deserialize)]
+struct Kind {
+    #[serde(rename = "type")]
+    kind: String,
+}
+
+/// `space events`: prints the watch's events until nobody reads them. When
+/// there's no watch, as before the plugin starts or while it restarts one,
+/// it waits for one.
 pub fn events(types: Option<Vec<String>>, no_snapshot: bool) -> Result<()> {
     let filter = parse_filter(types)?;
-    let hypr = Hypr::from_env()?;
-    let (send, messages) = mpsc::channel();
-    let stream = hypr.events()?;
-    std::thread::spawn(move || {
-        for event in stream {
-            if send.send(Message::Hyprland(event)).is_err() {
-                return;
-            }
-        }
-        let _ = send.send(Message::HyprlandGone);
-    });
-
-    let state_dir = paths::state_dir();
-    let mut store = Store::load(&state_dir)?;
-    let mut spaces_seen = stamp(&state_dir.join("spaces.json"));
-    let mut last = Last::load(&state_dir)?;
-    let mut last_seen = stamp(&state_dir.join("last"));
-    let mut snapshot = live::snapshot(&hypr)?;
-    let mut shells: HashMap<String, (terminal::Place, Option<terminal::Shell>)> = HashMap::new();
-    let mut seen: HashMap<String, u64> = HashMap::new();
-    let mut turns = status::Turns::default();
-    let mut focused_window = hypr.active_window_address()?;
-    let mut read_all = true;
-    let mut slow_at = Instant::now();
-    let mut again_at: Option<Instant> = None;
-
-    let mut prev: Option<State> = None;
-    let mut seq: u64 = 0;
+    let path = socket();
     let mut out = std::io::stdout().lock();
-
+    // Only the first snapshot is skipped: after a restart, one says what may
+    // have changed in between.
+    let mut skip_snapshot = no_snapshot;
+    let mut told = false;
     loop {
-        let now = Instant::now();
-        if now >= slow_at {
-            read_all = true;
-            slow_at = now + SLOW;
-            if replaced() {
-                return Ok(());
-            }
-            refresh(&hypr, &mut snapshot);
-        }
-
-        let live_addresses: HashSet<String> = snapshot
-            .space_windows
-            .iter()
-            .map(|w| w.address.clone())
-            .collect();
-        shells.retain(|address, _| live_addresses.contains(address));
-        for window in &snapshot.space_windows {
-            let known = shells.get(&window.address);
-            if read_all
-                || snapshot.active() == Some(window.space.as_str())
-                || known.is_none_or(|(place, _)| *place != window.place)
-            {
-                let before = known.and_then(|(_, shell)| Some(shell.as_ref()?.pid));
-                let shell = terminal::shell(window.place, before);
-                shells.insert(window.address.clone(), (window.place, shell));
-            }
-        }
-        read_all = false;
-
-        let spaces_stamp = stamp(&state_dir.join("spaces.json"));
-        if spaces_stamp != spaces_seen
-            && let Ok(reloaded) = Store::load(&state_dir)
-        {
-            store = reloaded;
-            spaces_seen = spaces_stamp;
-            refresh(&hypr, &mut snapshot);
-        }
-        let visited = stamp(&state_dir.join("last"));
-        if visited != last_seen
-            && let Ok(reloaded) = Last::load(&state_dir)
-        {
-            last = reloaded;
-            last_seen = visited;
-        }
-
-        let mut live = live::live_from(&snapshot, |window| shells.get(&window.address)?.1.clone());
-        turns.follow(live.agents_mut());
-        if let Some(focused) = &focused_window {
-            for (window, agent) in live.agents() {
-                if window == focused {
-                    seen.insert(agent.process.clone(), agent.turn);
+        let stream = match UnixStream::connect(&path) {
+            Ok(stream) => stream,
+            Err(_) => {
+                if !told {
+                    eprintln!("space: waiting for `space watch`, which the plugin runs");
+                    told = true;
                 }
-            }
-        }
-        let live_keys: HashSet<String> = live.agents().map(|(_, a)| a.process.clone()).collect();
-        seen.retain(|key, _| live_keys.contains(key));
-        live.set_statuses(|agent| seen.get(&agent.process) == Some(&agent.turn));
-
-        let rows = live::rows_readonly(&store, Some(&live), &last);
-        let focused_space = snapshot.active().map(str::to_string);
-        let focused_tab = focused_space
-            .as_deref()
-            .and_then(|space| Some(name::tab_id(space, snapshot.active_tab()?)));
-        let next = State {
-            focused: Focused {
-                space: focused_space,
-                tab: focused_tab,
-            },
-            list: list::list(&rows, Some((&snapshot, &live))),
-        };
-
-        let payloads: Vec<Payload> = match &prev {
-            None => {
-                if no_snapshot {
-                    Vec::new()
-                } else {
-                    vec![Payload::Snapshot {
-                        focused: next.focused.clone(),
-                        spaces: next.list.spaces.clone(),
-                    }]
-                }
-            }
-            Some(before) => diff(before, &next),
-        };
-        prev = Some(next);
-
-        for payload in payloads {
-            if let Some(allowed) = &filter
-                && !allowed.contains(payload.kind())
-            {
+                std::thread::sleep(RETRY);
                 continue;
             }
-            seq += 1;
-            let line = serde_json::to_string(&Envelope {
-                version: VERSION,
-                seq,
-                payload,
-            })?;
+        };
+        told = false;
+        for line in BufReader::new(stream).lines() {
+            let Ok(line) = line else { break };
+            let Ok(Kind { kind }) = serde_json::from_str(&line) else {
+                continue;
+            };
+            if kind == "snapshot" && std::mem::take(&mut skip_snapshot) {
+                continue;
+            }
+            if filter.as_ref().is_some_and(|f| !f.contains(&kind)) {
+                continue;
+            }
             if writeln!(out, "{line}").and_then(|()| out.flush()).is_err() {
                 return Ok(());
             }
         }
-
-        // Wait for Hyprland events or the next fast shell/store poll.
-        let mut changed = Change::Nothing;
-        let idle_until = Instant::now() + FAST;
-        let idle_until = again_at.map_or(idle_until, |at| at.min(idle_until));
-        let mut settled_at: Option<Instant> = None;
-        loop {
-            let until = match settled_at {
-                Some(_) if changed == Change::Place => Instant::now(),
-                Some(at) => at,
-                None => idle_until,
-            };
-            let wait = until.saturating_duration_since(Instant::now());
-            let message = match messages.recv_timeout(wait) {
-                Ok(message) => message,
-                Err(RecvTimeoutError::Timeout) => break,
-                Err(RecvTimeoutError::Disconnected) => bail!("Hyprland's events stopped"),
-            };
-            settled_at.get_or_insert_with(|| Instant::now() + SETTLE);
-            match message {
-                Message::Hyprland(event) => {
-                    changed = changed.max(Change::of(&event));
-                    let before = focused_window.clone();
-                    follow(&event, &mut focused_window);
-                    if focused_window != before {
-                        changed = changed.max(Change::Folders);
-                    }
-                }
-                Message::HyprlandGone => bail!("Hyprland's events stopped"),
-            }
-        }
-
-        let now = Instant::now();
-        let again = again_at.is_some_and(|at| at <= now);
-        if again {
-            again_at = None;
-        }
-        if again || changed >= Change::Windows {
-            refresh(&hypr, &mut snapshot);
-        }
-        if changed == Change::Place {
-            again_at = Some(now + SETTLE);
-        } else if again || changed != Change::Nothing {
-            read_all = true;
-        }
-    }
-}
-
-fn refresh(hypr: &Hypr, snapshot: &mut live::Snapshot) {
-    match live::snapshot(hypr) {
-        Ok(read) => *snapshot = read,
-        Err(e) => eprintln!("space: warning: {e:#}"),
     }
 }
 

@@ -101,18 +101,6 @@ impl Store {
         Self::read(state_dir, Err(anyhow!("it was only read")))
     }
 
-    /// An in-memory copy that can never be saved, for read-only inspection.
-    pub fn detached(&self) -> Self {
-        Self {
-            path: self.path.clone(),
-            spaces: self.spaces.clone(),
-            next: self.next,
-            read: self.read.clone(),
-            read_next: self.read_next,
-            lock: Err(anyhow!("it was only read")),
-        }
-    }
-
     /// Reads it, to change and save: other processes wait to do the same
     /// until it's dropped, so changes made at once are all kept.
     pub fn lock(state_dir: &Path) -> Result<Self> {
@@ -530,18 +518,5 @@ mod tests {
             Some("waiting on CI")
         );
         assert_eq!(loaded.get("s1").unwrap().meta["pr"], serde_json::json!(412));
-
-        let mut detached = loaded.detached();
-        detached.entry("s1").note = Some("mutated".into());
-        assert!(detached.save().is_err());
-        assert_eq!(
-            Store::load(dir.path())
-                .unwrap()
-                .get("s1")
-                .unwrap()
-                .note
-                .as_deref(),
-            Some("waiting on CI")
-        );
     }
 }
