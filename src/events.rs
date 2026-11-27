@@ -57,34 +57,6 @@ pub const ALL_TYPES: &[&str] = &[
     "status.changed",
 ];
 
-/// Event types that can trigger `[hooks]` in `config.toml` (everything but the
-/// initial `snapshot`).
-pub const HOOK_TYPES: &[&str] = &[
-    "space.created",
-    "space.removed",
-    "space.focused",
-    "space.changed",
-    "tab.created",
-    "tab.removed",
-    "tab.changed",
-    "status.changed",
-];
-
-/// A published change, handed to `[hooks]` alongside its serialized JSON line.
-#[derive(Debug, Clone)]
-pub struct Emitted {
-    pub kind: &'static str,
-    pub line: Arc<str>,
-    pub space: Option<String>,
-    pub label: Option<String>,
-    pub folder: Option<PathBuf>,
-    pub meta: BTreeMap<String, serde_json::Value>,
-    pub tab: Option<String>,
-    pub status: Option<Status>,
-    pub previous_status: Option<Status>,
-    pub changed: Vec<&'static str>,
-}
-
 /// Where the watch serves the events: `$XDG_RUNTIME_DIR/omarchy-spaces/events.sock`.
 pub fn socket() -> PathBuf {
     paths::runtime_dir().join("events.sock")
@@ -170,6 +142,7 @@ enum Payload {
 }
 
 impl Payload {
+    #[cfg(test)]
     fn kind(&self) -> &'static str {
         match self {
             Payload::Snapshot { .. } => "snapshot",
@@ -181,163 +154,6 @@ impl Payload {
             Payload::TabRemoved { .. } => "tab.removed",
             Payload::TabChanged { .. } => "tab.changed",
             Payload::StatusChanged { .. } => "status.changed",
-        }
-    }
-
-    fn emitted(&self, line: Arc<str>, before: Option<&State>, next: &State) -> Emitted {
-        let lookup = |id: &str| {
-            next.list
-                .spaces
-                .iter()
-                .find(|s| s.id == id)
-                .or_else(|| before.and_then(|b| b.list.spaces.iter().find(|s| s.id == id)))
-        };
-        let from_space = |s: &Space| {
-            (
-                Some(s.id.clone()),
-                Some(s.label.clone()),
-                s.folder.as_ref().map(|f| f.path().to_path_buf()),
-                s.meta.clone(),
-                s.status,
-            )
-        };
-        let (space, label, folder, meta, status, tab, previous_status, changed) = match self {
-            Payload::SpaceCreated { space } => {
-                let (id, label, folder, meta, status) = from_space(space);
-                (id, label, folder, meta, status, None, None, Vec::new())
-            }
-            Payload::SpaceRemoved { space, .. } => {
-                let (id, label, folder, meta, status) = from_space(space);
-                (id, label, folder, meta, status, None, None, Vec::new())
-            }
-            Payload::SpaceFocused { space, tab, .. } => {
-                if let Some(s) = space.as_deref().and_then(lookup) {
-                    let (id, label, folder, meta, status) = from_space(s);
-                    (
-                        id,
-                        label,
-                        folder,
-                        meta,
-                        status,
-                        tab.clone(),
-                        None,
-                        Vec::new(),
-                    )
-                } else {
-                    (
-                        space.clone(),
-                        None,
-                        None,
-                        BTreeMap::new(),
-                        None,
-                        tab.clone(),
-                        None,
-                        Vec::new(),
-                    )
-                }
-            }
-            Payload::SpaceChanged { space, changed } => {
-                let (id, label, folder, meta, status) = from_space(space);
-                (id, label, folder, meta, status, None, None, changed.clone())
-            }
-            Payload::TabCreated { space, tab } => {
-                let (id, label, folder, meta, status) = lookup(space).map_or_else(
-                    || (Some(space.clone()), None, None, BTreeMap::new(), None),
-                    from_space,
-                );
-                (
-                    id,
-                    label,
-                    folder,
-                    meta,
-                    status,
-                    Some(tab.id.clone()),
-                    None,
-                    Vec::new(),
-                )
-            }
-            Payload::TabRemoved {
-                space, id: tab_id, ..
-            } => {
-                let (id, label, folder, meta, status) = lookup(space).map_or_else(
-                    || (Some(space.clone()), None, None, BTreeMap::new(), None),
-                    from_space,
-                );
-                (
-                    id,
-                    label,
-                    folder,
-                    meta,
-                    status,
-                    Some(tab_id.clone()),
-                    None,
-                    Vec::new(),
-                )
-            }
-            Payload::TabChanged {
-                space,
-                tab,
-                changed,
-            } => {
-                let (id, label, folder, meta, status) = lookup(space).map_or_else(
-                    || (Some(space.clone()), None, None, BTreeMap::new(), None),
-                    from_space,
-                );
-                (
-                    id,
-                    label,
-                    folder,
-                    meta,
-                    status,
-                    Some(tab.id.clone()),
-                    None,
-                    changed.clone(),
-                )
-            }
-            Payload::StatusChanged {
-                space,
-                tab,
-                status,
-                previous,
-                ..
-            } => {
-                let (id, label, folder, meta, _) = lookup(space).map_or_else(
-                    || (Some(space.clone()), None, None, BTreeMap::new(), None),
-                    from_space,
-                );
-                (
-                    id,
-                    label,
-                    folder,
-                    meta,
-                    *status,
-                    tab.clone(),
-                    *previous,
-                    Vec::new(),
-                )
-            }
-            Payload::Snapshot { .. } => (
-                None,
-                None,
-                None,
-                BTreeMap::new(),
-                None,
-                None,
-                None,
-                Vec::new(),
-            ),
-        };
-        Emitted {
-            kind: self.kind(),
-            line,
-            space,
-            label,
-            folder,
-            meta,
-            tab,
-            status,
-            previous_status,
-            changed,
         }
     }
 
@@ -426,12 +242,11 @@ impl Hub {
     }
 
     /// Sends each subscriber what changed since the last `next`, or, to one
-    /// that just joined, all of it. Returns each emitted change (never the
-    /// initial snapshot) so `[hooks]` can react to the exact same events.
-    pub(crate) fn publish(&self, next: State) -> Vec<Emitted> {
+    /// that just joined, all of it.
+    pub(crate) fn publish(&self, next: State) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if inner.state.as_ref() == Some(&next) {
-            return Vec::new();
+            return;
         }
         let changes = match &inner.state {
             Some(before) => diff(before, &next),
@@ -439,31 +254,27 @@ impl Hub {
         };
         let first = inner.seq + 1;
         inner.seq += changes.len() as u64;
+        if inner.subscribers.is_empty() {
+            inner.state = Some(next);
+            return;
+        }
         let lines: Vec<Arc<str>> = (first..)
             .zip(&changes)
             .map(|(seq, payload)| line(seq, payload))
             .collect();
-        let emitted: Vec<Emitted> = changes
+        let snapshot = inner
+            .subscribers
             .iter()
-            .zip(&lines)
-            .map(|(payload, line)| payload.emitted(Arc::clone(line), inner.state.as_ref(), &next))
-            .collect();
-        if !inner.subscribers.is_empty() {
-            let snapshot = inner
-                .subscribers
-                .iter()
-                .any(|s| s.fresh)
-                .then(|| line(inner.seq, &Payload::snapshot(&next)));
-            inner.subscribers.retain_mut(|subscriber| {
-                if subscriber.fresh {
-                    subscriber.fresh = false;
-                    return send(subscriber, snapshot.iter());
-                }
-                send(subscriber, lines.iter())
-            });
-        }
+            .any(|s| s.fresh)
+            .then(|| line(inner.seq, &Payload::snapshot(&next)));
+        inner.subscribers.retain_mut(|subscriber| {
+            if subscriber.fresh {
+                subscriber.fresh = false;
+                return send(subscriber, snapshot.iter());
+            }
+            send(subscriber, lines.iter())
+        });
         inner.state = Some(next);
-        emitted
     }
 }
 

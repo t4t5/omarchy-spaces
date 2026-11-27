@@ -7,11 +7,11 @@ How to use Spaces.
 - [Installation](guide/install.md): what each step does, updating, building from source, uninstalling
 - [Spaces and tabs](guide/spaces-and-tabs.md): how they're named, moved and closed, on one monitor or several
 - [The sidebar and the bar](guide/sidebar.md): the rail, icons, the logo, and keeping Omarchy's menu
+- [Extending Spaces](guide/extending.md): building custom sidebars and workflows (git status, worktrees, agents lists)
 - [Keys](guide/keys.md): every action you can bind
 - [Agent status](guide/agent-status.md): the dots and sounds
 - [Restoring your spaces](guide/restore.md): what comes back after a restart, and what's saved
 - [Configuration](guide/configuration.md): every setting
-- [Extending Spaces](guide/extending.md): recipes for git status, worktrees, hooks, custom actions, and sidebar widgets
 - [Command line](guide/cli.md): every `space` command, and JSON for scripts
 
 ## Internals

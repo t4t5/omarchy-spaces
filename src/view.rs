@@ -11,8 +11,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::config::{Action, Actions};
-use crate::live::{Live, Row, Screen, Snapshot};
+use crate::live::{Live, Row, Screen, Snapshot, TerminalRow};
 use crate::name;
 use crate::status::Status;
 use crate::tabs;
@@ -33,47 +32,6 @@ pub(crate) struct State<'a> {
     monitors: Vec<Monitor<'a>>,
     /// In the sidebar's order.
     spaces: Vec<Space<'a>>,
-    /// Custom space and tab menu actions from `config.toml`.
-    #[serde(skip_serializing_if = "ViewActions::is_empty")]
-    actions: ViewActions<'a>,
-}
-
-#[derive(Debug, Default, Serialize)]
-struct ViewActions<'a> {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    space: Vec<ViewAction<'a>>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tab: Vec<ViewAction<'a>>,
-}
-
-impl ViewActions<'_> {
-    fn is_empty(&self) -> bool {
-        self.space.is_empty() && self.tab.is_empty()
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct ViewAction<'a> {
-    id: String,
-    label: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    icon: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hint: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    when: Option<&'a str>,
-}
-
-impl<'a> ViewAction<'a> {
-    fn from(action: &'a Action) -> Self {
-        Self {
-            id: action.resolved_id(),
-            label: &action.label,
-            icon: action.icon.as_deref().filter(|s| !s.is_empty()),
-            hint: action.hint.as_deref().filter(|s| !s.is_empty()),
-            when: action.when.as_deref().filter(|s| !s.is_empty()),
-        }
-    }
 }
 
 /// A monitor, and the tabs its bar shows: those it has of the space it shows.
@@ -104,6 +62,20 @@ struct Tab {
     active: bool,
 }
 
+/// A terminal window in a space, as widgets in the sidebar or bar see it.
+#[derive(Debug, Serialize)]
+struct Terminal<'a> {
+    address: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tab: Option<String>,
+    folder: &'a Path,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    program: Option<&'a str>,
+    label: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<Status>,
+}
+
 /// A space, as the sidebar shows it.
 #[derive(Debug, Serialize)]
 struct Space<'a> {
@@ -119,22 +91,12 @@ struct Space<'a> {
     windows: Option<u32>,
     left_at: u64,
     status: Option<Status>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    terminals: Vec<Terminal<'a>>,
 }
 
-pub(crate) fn state<'a>(
-    snapshot: &'a Snapshot,
-    live: &Live,
-    rows: &'a [Row],
-    actions: Option<&'a Actions>,
-) -> State<'a> {
+pub(crate) fn state<'a>(snapshot: &'a Snapshot, live: &Live, rows: &'a [Row]) -> State<'a> {
     let focused = snapshot.screens.iter().find(|screen| screen.focused);
-    let actions = match actions {
-        Some(actions) => ViewActions {
-            space: actions.space.iter().map(ViewAction::from).collect(),
-            tab: actions.tab.iter().map(ViewAction::from).collect(),
-        },
-        None => ViewActions::default(),
-    };
     State {
         version: VERSION,
         space: env!("CARGO_PKG_VERSION"),
@@ -145,7 +107,6 @@ pub(crate) fn state<'a>(
             .map(|screen| monitor(screen, snapshot, live, rows))
             .collect(),
         spaces: rows.iter().map(space).collect(),
-        actions,
     }
 }
 
@@ -177,6 +138,17 @@ fn monitor<'a>(screen: &'a Screen, snapshot: &Snapshot, live: &Live, rows: &[Row
     }
 }
 
+fn terminal<'a>(space: &str, t: &'a TerminalRow) -> Terminal<'a> {
+    Terminal {
+        address: &t.address,
+        tab: t.tab.map(|key| name::tab_id(space, key)),
+        folder: t.folder.path(),
+        program: t.program.as_deref(),
+        label: &t.label,
+        status: t.status,
+    }
+}
+
 fn space(row: &Row) -> Space<'_> {
     Space {
         id: &row.id,
@@ -189,6 +161,7 @@ fn space(row: &Row) -> Space<'_> {
         windows: row.windows,
         left_at: row.left_at,
         status: row.status,
+        terminals: row.terminals.iter().map(|t| terminal(&row.id, t)).collect(),
     }
 }
 
@@ -207,7 +180,7 @@ mod tests {
             shows: name::locate(-5, "chat"),
         });
         let live = Live::default();
-        let state = state(&snapshot, &live, &[], None);
+        let state = state(&snapshot, &live, &[]);
         assert_eq!(state.focused, Some("eDP-1"));
         assert_eq!(state.monitors[0].space, HOME);
         assert_eq!(state.monitors[0].tab, None);

@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import Quickshell
 import qs.Commons
 import qs.Commons as Commons
 import "Spaces.mjs" as Spaces
@@ -37,30 +36,6 @@ Item {
   property real shownWidth: width
   // The screen it is drawn on.
   property var screen: null
-  // Optional `rowWidget` entry from `shell.json`, and the bar's widget registry.
-  property var rowWidget: null
-  property var barWidgetRegistry: null
-  readonly property string home: Quickshell.env("HOME") || ""
-  readonly property string rowWidgetUrl: Spaces.customModuleUrl(root.rowWidget, root.home)
-  readonly property var rowWidgetComponent: {
-    var registry = root.barWidgetRegistry
-    if (!root.rowWidget || !root.rowWidget.id || root.rowWidget.id === "com.t4t5.spaces" || root.rowWidgetUrl || !registry) return null
-    var revision = registry.revision
-    var widgets = registry.widgets
-    return widgets && widgets[root.rowWidget.id] ? widgets[root.rowWidget.id].component : null
-  }
-  readonly property bool hasRowWidget: !!root.rowWidgetComponent || root.rowWidgetUrl !== ""
-
-  QtObject {
-    id: rowSpacesApi
-    readonly property int version: 1
-    function goToSpace(id) { if (id) Quickshell.execDetached(["space", "go", String(id)]) }
-    function runAction(id, spaceId) {
-      var args = ["space", "action", String(id)]
-      if (spaceId) args.push("-s", String(spaceId))
-      Quickshell.execDetached(args)
-    }
-  }
 
   readonly property color accent: Commons.Color.accent
   readonly property color selectedBackground: Commons.Color.menu.selectedBackground
@@ -367,7 +342,7 @@ Item {
             anchors.leftMargin: root.textX
             anchors.rightMargin: Style.spacing.rowPaddingX
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 0
+            spacing: Style.spacing.xxs
             opacity: root.textShown
 
             Text {
@@ -412,67 +387,6 @@ Item {
                   NumberAnimation { to: 0; duration: 0 }
                   PauseAnimation { duration: 530 }
                 }
-              }
-            }
-
-            // Optional user QML module or registered widget (`rowWidget` in
-            // shell.json), shown under the space's name while expanded.
-            // Collapse `height` rather than binding `visible` to `item.visible`
-            // (which would deadlock when an ancestor hides).
-            Item {
-              id: rowSlot
-              readonly property bool active: !rowItem.renaming && root.hasRowWidget
-              readonly property var item: rowRegistryLoader.item || rowModuleLoader.item
-              readonly property real contentHeight: active && !!item && item.visible ? Math.max(0, item.implicitHeight) : 0
-              visible: active
-              width: parent.width
-              height: contentHeight > 0 ? contentHeight + Style.spacing.xxs : 0
-              clip: true
-
-              function sync() {
-                var target = rowSlot.item
-                if (!target) return
-                var pub = Spaces.publicSpaceRow(rowItem.modelData)
-                if ("space" in target) target.space = pub
-                if ("settings" in target) target.settings = root.rowWidget ? root.rowWidget.settings : ({})
-                if ("foreground" in target) target.foreground = root.foreground
-                if ("accent" in target) target.accent = root.accent
-                if ("fontFamily" in target) target.fontFamily = root.fontFamily
-                if ("expanded" in target) target.expanded = root.textShown > 0
-                if ("selected" in target) target.selected = rowItem.selected
-                if ("spaces" in target) target.spaces = rowSpacesApi
-              }
-
-              Loader {
-                id: rowRegistryLoader
-                y: Style.spacing.xxs
-                active: rowSlot.active && !!root.rowWidgetComponent
-                sourceComponent: root.rowWidgetComponent
-                width: rowSlot.width
-                onLoaded: rowSlot.sync()
-              }
-
-              Loader {
-                id: rowModuleLoader
-                y: Style.spacing.xxs
-                active: rowSlot.active && !root.rowWidgetComponent && root.rowWidgetUrl !== ""
-                source: active ? root.rowWidgetUrl : ""
-                width: rowSlot.width
-                onLoaded: rowSlot.sync()
-                onStatusChanged: if (status === Loader.Error) console.warn("omarchy-spaces: couldn't load rowWidget", root.rowWidgetUrl)
-              }
-
-              Connections {
-                target: rowItem
-                function onModelDataChanged() { rowSlot.sync() }
-                function onSelectedChanged() { rowSlot.sync() }
-              }
-              Connections {
-                target: root
-                function onForegroundChanged() { rowSlot.sync() }
-                function onAccentChanged() { rowSlot.sync() }
-                function onTextShownChanged() { rowSlot.sync() }
-                function onRowWidgetChanged() { rowSlot.sync() }
               }
             }
           }
@@ -523,7 +437,7 @@ Item {
               if (rowItem.renaming || rowMouse.wasDrag) return
               if (mouse.button !== Qt.RightButton) {
                 root.sidebar.activate(rowItem.index)
-              } else if (root.controller && Spaces.rowActions(rowItem.modelData, root.controller.now.actions ? root.controller.now.actions.space : []).length > 0) {
+              } else if (root.controller && Spaces.rowActions(rowItem.modelData).length > 0) {
                 // The base covers the screen, so its coordinates are the
                 // screen's, which the menu's surface shares.
                 var at = rowMouse.mapToItem(null, mouse.x, mouse.y)

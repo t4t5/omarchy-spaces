@@ -80,7 +80,8 @@ A widget for `tabsWidget` is an ordinary bar widget: Spaces sets `bar`, `moduleN
 `spaces` has:
 
 - `version`: the version of this API, now `1`.
-- `space`: the space shown on this screen, `{ id, label, named, icon, folder, meta, status }`. `icon` is a glyph, emoji, image path, or `""`; `folder` is the space's folder path or `""`; `meta` is its metadata object (`space meta`); `status` is `""`, `"working"`, `"done"` or `"waiting"`.
+- `space`: the space shown on this screen, `{ id, label, named, icon, folder, meta, status, terminals }`. `icon` is a glyph, emoji, image path, or `""`; `folder` is the space's folder path or `""`; `meta` is its metadata object (`space meta`); `status` is `""`, `"working"`, `"done"` or `"waiting"`; `terminals` is its terminal windows, each `{ address, tab, folder, program, label, status }`.
+- `spaces`: every space in sidebar order, each `{ id, label, named, icon, folder, meta, status, active, windows, leftAt, terminals }`.
 - `tabs`: its tabs, each `{ id, slot, label, named, status, active }`. `slot` is the tab's number; `status` is `""`, `"working"`, `"done"` or `"waiting"`.
 - `sidebarOpen`: whether the sidebar is expanded on this screen.
 - `renaming`, `renameText` and `renameSelected`: the id of the tab being renamed, the name typed so far, and whether all of it is selected (so the next keypress replaces it). Spaces takes the keys: Enter keeps the name, Escape drops it.
@@ -90,7 +91,6 @@ A widget for `tabsWidget` is an ordinary bar widget: Spaces sets `bar`, `moduleN
 - `reorderTab(id, position)`: moves a tab to a position, counting from 1.
 - `openTabMenu(id, x, y)`: opens a tab's menu at a point in the bar's window, from `mapToItem(null, x, y)`.
 - `toggleSidebar()`.
-- `runAction(id, spaceId, tabId)`: runs a custom action from `config.toml` (`[[actions]]`).
 
 Treat the `id`s as opaque: pass them back to `spaces`, but don't read anything into their form. New fields can be added to `spaces` at any time. Spaces is young, so a field may still change or go, but when one does `version` goes up and the change is in the release notes, so a widget can check `spaces.version` before relying on it.
 
@@ -132,24 +132,29 @@ Item {
 }
 ```
 
-## Customizing sidebar rows
+## Customizing the sidebar
 
-To show extra detail under each space's name while the sidebar is expanded (such as git branch, dirty state, worktree tags, or listening ports from `space meta`), set `rowWidget` on the `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json`. It takes the same widget entry forms as `tabsWidget`: a registered bar widget id, `{ "id": "my-row", "type": "qml" }` (loads `~/.config/omarchy/bar/modules/my-row.qml`), or `{ "source": "~/path/MyRow.qml" }`.
+Just as `tabs` and `tabsWidget` customize the bar's tabs, `sidebar` and `sidebarWidget` on the `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` customize the sidebar:
 
 ```json
 {
   "id": "com.t4t5.spaces",
-  "rowWidget": { "id": "space-git", "type": "qml" }
+  "sidebar": { "width": 240 },
+  "sidebarWidget": { "id": "my-sidebar", "type": "qml" }
 }
 ```
 
-Spaces keeps the sidebar's badges, status dots, drag-to-reorder, inline rename, icon picker, and search, and mounts your widget right below the space's name (hiding it while renaming or when its `implicitHeight` is `0` or `visible` is `false`). It sets any of these properties your QML item declares:
+- `sidebar`: settings for the sidebar frame. Currently `{ "width": 240 }` sets the expanded width (in scaled units, default `200`).
+- `sidebarWidget`: a registered bar widget id, `{ "id": "my-sidebar", "type": "qml" }` (loads `~/.config/omarchy/bar/modules/my-sidebar.qml`), or `{ "source": "~/path/MySidebar.qml" }`. Spaces keeps the Wayland exclusive-zone reservation, Hyprland slide animation, glassy/clear background, and top-layer keyboard panel, and mounts your widget inside the sidebar frame in place of its own list. Until your widget loads (or if it fails), Spaces' own sidebar shows.
 
-- `space`: `{ id, label, named, icon, folder, meta, status, active, windows }`.
-- `settings`: the rest of the `rowWidget` entry from `shell.json`.
-- `foreground`, `accent`, `fontFamily`: the sidebar's current theme colors and font.
-- `expanded`: whether the sidebar is expanded on this screen.
-- `selected`: whether the row is selected or hovered.
-- `spaces`: `{ version: 1, goToSpace(id), runAction(actionId, spaceId) }`.
+Spaces sets any of these properties your `sidebarWidget` declares (bind to them rather than marking them `required`): `settings`, `foreground`, `shownWidth` (the width currently uncovered from the left edge as the sidebar slides), `screen`, and `spaces`:
 
-See [Extending Spaces](extending.md) for working examples.
+- `version`: `1`.
+- `spaces`: all spaces in sidebar order, each `{ id, label, named, icon, folder, meta, status, active, windows, leftAt, terminals }`.
+- `filteredSpaces`: `spaces` filtered by `filterText`.
+- `space` and `tabs`: the active space and its tabs on this screen.
+- `sidebarOpen`, `expansion` (`0` collapsed to `1` expanded), `shownWidth`, `railWidth`, `panelWidth`, `cell`, `inset`, `badgeSize`, `badgeRadius`, `headerOnBar`.
+- `searching`, `filterText`, `selectedIndex`, `error`, `renaming`, `renameText`, `renameSelected`, `palette`, `statusColors`.
+- `goToSpace(id)`, `newSpace([dir])`, `renameSpace([id])`, `openIconPicker(id, x, y)`, `closeSpace(id)`, `reorderSpace(id, position)`, `openSpaceMenu(id, x, y)`, `toggleSidebar()`, `search()`, `endSearch()`, `select(index)`, `activate(index)`, `goToTab(target)`, `newTab()`, `setMeta(spaceId, key, value)` (`null` removes), `focusWindow(address)`.
+
+See [Extending Spaces](extending.md) for git status, worktree grouping, and agents-list recipes.

@@ -46,7 +46,11 @@ Item {
   }
   readonly property var effectiveSettings: root.barSettings
     || Spaces.pluginSettings(root.shell ? root.shell.barConfig : null, (root.manifest && root.manifest.id) || "com.t4t5.spaces")
-  readonly property var rowWidget: Spaces.rowSlot(root.effectiveSettings).widget
+  readonly property var sidebarSlot: Spaces.sidebarSlot(root.effectiveSettings)
+  function checkSidebarSlot() {
+    if (root.sidebarSlot.misplaced) console.warn("omarchy-spaces: `sidebar` holds Spaces' own sidebar settings; put another widget in `sidebarWidget`")
+  }
+  onSidebarSlotChanged: root.checkSidebarSlot()
 
   function search() { sidebarItem.search() }
   function endSearch() { sidebarItem.endSearch() }
@@ -70,7 +74,7 @@ Item {
     controller: controllerItem
     look: Spaces.barLook(root.shell ? root.shell.barConfig : null)
     bar: root.shell ? root.shell.bar : null
-    rowWidget: root.rowWidget
+    sidebarWidget: root.sidebarSlot.widget
     barWidgetRegistry: root.barWidgetRegistry
   }
 
@@ -103,7 +107,10 @@ Item {
   // `[restore]` sets `auto = false`. It does nothing when they already
   // have, as when only the shell restarts; detached, so restarting the shell
   // doesn't stop it halfway.
-  Component.onCompleted: Quickshell.execDetached(["space", "restore", "--auto"])
+  Component.onCompleted: {
+    root.checkSidebarSlot()
+    Quickshell.execDetached(["space", "restore", "--auto"])
+  }
 
   // When the plugin is removed this is all that runs, so it has uninstall.sh
   // undo the setup, from the copy the setup kept. That tells it apart from the
@@ -115,6 +122,7 @@ Item {
     id: sidebarItem
     watch: watchItem
     controller: controllerItem
+    customWidth: root.sidebarSlot.width
     // As the tabs' widgets have it, or as the config does until they load,
     // so the list doesn't start with a header that then goes.
     headerOnBar: root.headerBars ? root.headerBars.length > 0

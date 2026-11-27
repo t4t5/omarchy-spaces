@@ -64,7 +64,8 @@ Item {
   // first there (TabsWidget.qml), so the list starts without one.
   property bool headerOnBar: false
 
-  readonly property int panelWidth: Style.space(200)
+  property int customWidth: 0
+  readonly property int panelWidth: root.customWidth > 0 ? Math.max(root.railWidth, Style.space(root.customWidth)) : Style.space(200)
 
   // The rail's geometry, from which the list's follows (SidebarList.qml).
   // Whatever `inset` and `badgeScale` are set to, these hold:

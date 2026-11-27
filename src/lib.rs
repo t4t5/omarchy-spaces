@@ -10,7 +10,6 @@ pub mod config;
 pub mod context;
 pub mod events;
 pub mod folder;
-pub mod hooks;
 pub mod hypr;
 pub mod launch;
 pub mod layout;

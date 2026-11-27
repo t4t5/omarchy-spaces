@@ -50,13 +50,9 @@ Item {
   readonly property var menuTab: root.menuTabAt ? root.menuTabAt.tab : null
   // Gone to another space, or the tab ended: the menu doesn't come back.
   onMenuTabChanged: if (!root.menuTab && root.menuTabFor) root.closeMenu()
-  readonly property var menuActions: {
-    var actions = root.now.actions || { space: [], tab: [] }
-    if (!root.menuTabFor) return Spaces.rowActions(root.menuRow, actions.space)
-    var monitor = root.menuTabAt ? root.menuTabAt.monitor : root.here
-    var tabSpace = root.rows.find(function(r) { return r.id === monitor.space }) || null
-    return Spaces.tabActions(root.menuTab, monitor, root.moveTargets.length > 0, actions.tab, tabSpace)
-  }
+  readonly property var menuActions: root.menuTabFor
+    ? Spaces.tabActions(root.menuTab, root.menuTabAt ? root.menuTabAt.monitor : root.here, root.moveTargets.length > 0)
+    : Spaces.rowActions(root.menuRow)
   // Whether the tab's menu has given way to asking whether to close it, and
   // what it asks.
   property bool confirmingClose: false
@@ -205,25 +201,12 @@ Item {
   // An action from a space's menu (Spaces.rowActions), or a tab's
   // (Spaces.tabActions).
   function act(id, row) {
-    var isTab = !!root.menuTabFor
-    var tabSpace = root.menuTabAt ? root.menuTabAt.monitor.space : root.here.space
     root.closeMenu()
     if (id === "rename") root.startRename(row)
     else if (id === "rename-tab") root.renameTab(row.id)
     else if (id === "icon") root.openIconPicker(row)
     else if (id === "clear-icon") root.run(["space", "icon", row.id, ""])
     else if (id === "close") root.run(["space", "close", row.id])
-    else if (String(id).indexOf("action:") === 0 && row) {
-      var actionId = String(id).slice(7)
-      var args = ["space", "action", actionId]
-      if (isTab) {
-        if (tabSpace) args.push("-s", tabSpace)
-        if (row.id) args.push("-t", row.id)
-      } else if (row.id) {
-        args.push("-s", row.id)
-      }
-      root.run(args)
-    }
   }
 
   // Opens the icon picker for a space, where its menu was.
@@ -231,6 +214,15 @@ Item {
     root.endNaming(false)
     root.iconPreview = ""
     root.iconFor = row.id
+  }
+
+  // Opens the icon picker for a space at a point on `screen`, for custom
+  // sidebar widgets (`spaces.openIconPicker`).
+  function openIconPickerAt(id, x, y, screen) {
+    var row = root.rows.find(function(r) { return r.id === id })
+    if (!row || row.id === "home") return
+    root.placeMenu(x, y, screen)
+    root.openIconPicker(row)
   }
 
   function closeIconPicker() {
@@ -305,15 +297,15 @@ Item {
     root.startNaming(target, tab.label, tab.named)
   }
 
-  // Renames the space you are in, from the keyboard. `home` has no name to
-  // change. A sidebar collapsed, or expanded just for a search, is expanded
-  // just for the rename.
-  function renameSpace() {
-    var id = root.here.space
-    if (!id || id === "home" || root.renaming === id || !root.sidebar) return
+  // Renames the space you are in (or `id`, when given), from the keyboard.
+  // `home` has no name to change. A sidebar collapsed, or expanded just for a
+  // search, is expanded just for the rename.
+  function renameSpace(id) {
+    var target = id ? String(id) : root.here.space
+    if (!target || target === "home" || root.renaming === target || !root.sidebar) return
     var only = !root.sidebar.opened || (root.sidebar.searching && root.sidebar.searchOnly)
     if (!root.sidebar.opened) root.sidebar.show()
-    var row = root.rows.find(function(r) { return r.id === id })
+    var row = root.rows.find(function(r) { return r.id === target })
     if (!row) {
       if (only) root.sidebar.hide()
       return

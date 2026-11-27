@@ -12,9 +12,9 @@ Omarchy Spaces (`com.t4t5.spaces`) adds project-based spaces (sidebar rail on th
 
 - **Never edit files inside `~/.config/omarchy/plugins/com.t4t5.spaces/`** — plugin updates overwrite them.
 - Edit user config instead:
-  - `~/.config/omarchy/shell.json` — the `tabs`, `tabsWidget`, and `rowWidget` keys on the `com.t4t5.spaces` entry. Applied when saved.
-  - `~/.config/omarchy/bar/modules/<id>.qml` (or any file named by `source`) — custom QML widgets for `tabsWidget` and `rowWidget`.
-  - `~/.config/omarchy-spaces/config.toml` — restore, sound, custom menu actions (`[[actions.space]]`, `[[actions.tab]]`), and event hooks (`[hooks]`). Applied live.
+  - `~/.config/omarchy/shell.json` — the `tabs`, `tabsWidget`, `sidebar`, and `sidebarWidget` keys on the `com.t4t5.spaces` entry. Applied when saved.
+  - `~/.config/omarchy/bar/modules/<id>.qml` (or any file named by `source`) — custom QML widgets for `tabsWidget` and `sidebarWidget`.
+  - `~/.config/omarchy-spaces/config.toml` — restore and sound settings. Applied live.
   - `~/.config/hypr/bindings.lua` — Spaces keybindings. Validate with `hyprctl reload && hyprctl configerrors`.
 - Do **not** clone `omarchy.workspaces` to customize Spaces tabs: `omarchy.workspaces` only reads numeric Hyprland workspaces, whereas Spaces uses named workspaces (`s1:1`, …) and drives tabs from `space watch`. Put a widget in Spaces' `tabsWidget` instead.
 - To place other Omarchy bar widgets beside Spaces, add them before or after `com.t4t5.spaces` in `bar.layout.left` (widgets after it already slide with it; `omarchy.menu` before it takes the corner while the sidebar keeps its header).
@@ -44,9 +44,11 @@ To replace them, set `tabsWidget` to a widget entry, written as in the bar's own
 - `"tabs": false` hides Spaces' own tabs (if `tabsWidget` is also set, `tabsWidget` still shows, with no fallback to Spaces' own tabs).
 - Until a widget loads, the slot shows Spaces' own unless `"tabs": false`.
 
-A widget in `tabsWidget` is an ordinary bar widget (`bar`, `moduleName`, `settings`), plus `maxWidth` (room before the clock) and `spaces`: `version` (now `1`; it goes up when a field changes or goes, so check it), `space` (`{ id, label, named, icon, folder, meta, status }`), `tabs` (`{ id, slot, label, named, status, active }`), `sidebarOpen` (on this screen), `renaming`, `renameText`, `renameSelected`, `goToTab(idOrNumber)`, `newTab()`, `renameTab(id)`, `reorderTab(id, position)`, `openTabMenu(id, x, y)` (window coordinates from `mapToItem(null, x, y)`), `toggleSidebar()`, `runAction(id, spaceId, tabId)`. Treat ids as opaque. These properties are assigned once the widget loads, so bind to them rather than marking them `required` or reading them in `Component.onCompleted`. Set `textFormat: Text.PlainText` on any `Text` showing tab or space names. A new or edited `.qml` file may need `omarchy restart shell` before it loads.
+A widget in `tabsWidget` is an ordinary bar widget (`bar`, `moduleName`, `settings`), plus `maxWidth` (room before the clock) and `spaces`: `version` (now `1`; it goes up when a field changes or goes, so check it), `space` (`{ id, label, named, icon, folder, meta, status, terminals }`), `spaces` (all spaces in sidebar order, each `{ id, label, named, icon, folder, meta, status, active, windows, leftAt, terminals }`), `tabs` (`{ id, slot, label, named, status, active }`), `sidebarOpen` (on this screen), `renaming`, `renameText`, `renameSelected`, `goToTab(idOrNumber)`, `newTab()`, `renameTab(id)`, `reorderTab(id, position)`, `openTabMenu(id, x, y)` (window coordinates from `mapToItem(null, x, y)`), `toggleSidebar()`. Treat ids as opaque. These properties are assigned once the widget loads, so bind to them rather than marking them `required` or reading them in `Component.onCompleted`. Set `textFormat: Text.PlainText` on any `Text` showing tab or space names. A new or edited `.qml` file may need `omarchy restart shell` before it loads.
 
-To render extra detail under each space's name in the expanded sidebar (such as git branch/dirty state or worktree tags from `space meta`), set `rowWidget` on the `com.t4t5.spaces` entry in `~/.config/omarchy/shell.json` using the same entry forms as `tabsWidget`. Spaces injects `space` (`{ id, label, named, icon, folder, meta, status, active, windows }`), `settings`, `foreground`, `accent`, `fontFamily`, `expanded`, `selected`, and `spaces` (`{ version: 1, goToSpace(id), runAction(id, spaceId) }`). Complete git status and worktree recipes: `~/.config/omarchy/plugins/com.t4t5.spaces/docs/guide/extending.md`.
+## Customizing the sidebar (`~/.config/omarchy/shell.json`)
+
+Just like `tabs` / `tabsWidget`, two keys customize the sidebar on the `com.t4t5.spaces` entry: `sidebar` (`{ "width": 240 }` for a wider expanded panel; default `200`) and `sidebarWidget` (same entry forms as `tabsWidget`: a registered bar widget id, `{ "id": "my-sidebar", "type": "qml" }`, or `{ "source": "~/path/MySidebar.qml" }`). Spaces keeps the Wayland exclusive-zone reservation, Hyprland slide animation, glassy/clear background, menus, icon picker, and keyboard panel, and mounts your widget inside the sidebar frame in place of `SidebarList.qml` (falling back to Spaces' own until loaded). It sets `settings`, `foreground`, `shownWidth`, `screen`, and `spaces` (`version: 1`, `spaces`, `filteredSpaces`, `space`, `tabs`, `sidebarOpen`, `expansion`, `shownWidth`, `railWidth`, `panelWidth`, `cell`, `inset`, `badgeSize`, `badgeRadius`, `headerOnBar`, `searching`, `filterText`, `selectedIndex`, `error`, `renaming`, `renameText`, `renameSelected`, `palette`, `statusColors`, `goToSpace(id)`, `newSpace([dir])`, `renameSpace([id])`, `openIconPicker(id, x, y)`, `closeSpace(id)`, `reorderSpace(id, pos)`, `openSpaceMenu(id, x, y)`, `toggleSidebar()`, `search()`, `endSearch()`, `select(index)`, `activate(index)`, `goToTab(target)`, `newTab()`, `setMeta(spaceId, key, val)`, `focusWindow(address)`). Recipes for git status, nested worktrees, and an agents section: `~/.config/omarchy/plugins/com.t4t5.spaces/docs/guide/extending.md`.
 
 ## Configuration (`~/.config/omarchy-spaces/config.toml`)
 
@@ -62,19 +64,6 @@ browsers = true   # reopen browser windows
 enabled = false   # chime when an agent finishes or waits for input
 # done = "~/ding.oga"
 # waiting = "~/dong.oga"
-
-# Optional right-click menu actions (also callable via `space action <id>` or `spaces.action("<id>")`)
-[[actions.space]]
-id = "new-worktree"
-label = "New worktree…"
-icon = "󰘬"
-when = "folder"   # clauses: folder, home, status, status=<v>, meta.<path>[=v|!=v], !negation
-command = "~/.config/omarchy-spaces/scripts/new-worktree.sh"
-
-# Optional event hooks (receive event JSON on stdin + SPACE_EVENT/SPACE_ID/SPACE_DIR/SPACE_META env)
-[hooks]
-"space.created" = "~/.config/omarchy-spaces/scripts/git-meta.sh"
-"space.focused" = "~/.config/omarchy-spaces/scripts/git-meta.sh"
 ```
 
 ## Keybindings (`~/.config/hypr/bindings.lua`)
@@ -95,7 +84,7 @@ end
 ```
 
 Available helpers on `require("hypr.omarchy-spaces")`:
-- **Spaces**: `toggle_sidebar()`, `find_space()`, `new_space()`, `next_space()`, `prev_space()`, `rename_space()`, `action(id)`.
+- **Spaces**: `toggle_sidebar()`, `find_space()`, `new_space()`, `next_space()`, `prev_space()`, `rename_space()`.
 - **Tabs**: `bind_tab_keys()`, `new_tab()`, `go_to_tab(n)`, `next_tab()`, `prev_tab()`, `rename_tab()`, `send_tab([target])`.
 - **Windows**: `terminal()`, `move_window_to_tab(n[, follow])`, `send_window([target[, follow]])`.
 
@@ -113,7 +102,6 @@ space go <space>                # go to a space
 space rename [space] <name>     # "" for its folder's name
 space icon [space] <icon>       # a glyph, emoji or image path; "" for its letters
 space meta get|set|rm <key>     # data of your own on a space; set takes a value, and --json
-space action <id> [-s <space>] [-t <tab>]     # run a custom action from config.toml
 space events                    # a line of JSON per change
 space tab go <n|id> | next | prev | rename [tab] <name> | send [tab] <space> | close [tab]
 space window send <space|next|prev> [--silent]

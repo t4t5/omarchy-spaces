@@ -168,9 +168,11 @@ BarWidget {
     id: spacesApi
     readonly property int version: 1
     // The space shown on this bar's screen:
-    // `{ id, label, named, icon, status }` (Spaces.publicSpace), and its tabs:
+    // `{ id, label, named, icon, folder, meta, status, terminals }`
+    // (Spaces.publicSpace), all spaces (Spaces.publicSpaceRow), and its tabs:
     // `{ id, slot, label, named, status, active }` (Spaces.publicTab).
     readonly property var space: Spaces.publicSpace(root.watchState, root.live.space)
+    readonly property var spaces: root.watchState.spaces.map(Spaces.publicSpaceRow)
     readonly property var tabs: root.live.tabs.map(Spaces.publicTab)
     readonly property bool sidebarOpen: !!root.sidebar && root.sidebar.opened
       && !!root.sidebar.screen && root.sidebar.screen.name === root.screenName
@@ -195,13 +197,6 @@ BarWidget {
     // Opens a tab's menu at a point on the bar's window: `mapToItem(null, x, y)`.
     function openTabMenu(id, x, y) { root.openTabMenu(String(id), x, y) }
     function toggleSidebar() { root.toggleSidebar() }
-    // Runs a custom action configured in `config.toml` (`[[actions]]`).
-    function runAction(id, spaceId, tabId) {
-      var args = ["space", "action", String(id)]
-      if (spaceId) args.push("-s", String(spaceId))
-      if (tabId) args.push("-t", String(tabId))
-      root.run(args)
-    }
   }
 
   // The background, from the screen's edge to where the windows begin, over

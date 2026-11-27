@@ -437,11 +437,6 @@ local function terminal()
   return run("terminal")() .. " || omarchy-launch-terminal"
 end
 
--- Runs a custom action configured in `config.toml` (`[[actions]]`).
-local function action(id)
-  return run("action")() .. " " .. o.shell_quote(id)
-end
-
 -- `sync` is for `space`, when it renames the workspace you are on into
 -- another space: nothing else says that happened.
 local function sync()
@@ -478,7 +473,6 @@ local M = {
   move_window_to_tab = move_window,
 
   terminal = terminal,
-  action = action,
 
   -- For `space` alone (src/hypr.rs).
   internal = { sync = sync, show = show_tab },
