@@ -12,7 +12,7 @@ After changing anything you can see (the QML in `omarchy/`), check it on screen 
 
 A space's tabs are always numbered 1, 2, 3, … on each monitor: Hyprland runs `space renumber` as a space's workspace comes or goes, and it closes the gaps (`src/commands/tab.rs`). Two rules keep that right for a new command:
 
-- A command that can end a tab (closing windows, moving them away, sending the tab elsewhere) holds `hold_tabs()` while it runs, so `renumber` waits for it rather than renumbering the tabs under it. The lock can't be taken twice in one process: a command that already holds it calls the `_held` version of another, as `send_window` calls `emptied_held`.
+- A command that can end a tab (closing windows, moving them away, sending the tab elsewhere) holds `hold_tabs()` while it runs, so `renumber` waits for it rather than renumbering the tabs under it. The lock can't be taken twice in one process: a command that already holds it calls the `_held` version of another.
 - A command that renames a tab out of a space calls `renumber_tabs` before it finishes, as `send_tab` does. A rename isn't a workspace going, so Hyprland doesn't run `renumber` for it.
 
 ## Working in a fork

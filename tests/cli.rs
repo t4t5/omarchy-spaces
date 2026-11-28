@@ -1094,9 +1094,10 @@ fn sending_a_spaces_last_window_away_ends_it() {
     env.ok(&["go", "mail"]);
     env.ok(&["tab", "go", "2"]);
 
-    // Silently: the emptied tab gives way to the next one with windows.
+    // Silently: the emptied tab stays until you leave it.
     env.ok(&["window", "send", "ren", "--silent"]);
-    assert_eq!(env.active(), "s2:1");
+    assert_eq!(env.active(), "s2:2");
+    env.ok(&["tab", "go", "1"]);
 
     // Following: mail is gone, and so is where you left it.
     env.ok(&["window", "send", "ren"]);
@@ -2962,71 +2963,6 @@ fn new_without_exec_rules_goes_there_and_then_opens_the_terminal() {
 }
 
 #[test]
-fn an_emptied_tab_gives_way_to_the_next_one_then_the_one_before() {
-    let env = Env::new();
-    env.add_window("s1:1");
-    env.add_window("s1:3");
-    let closing = env.add_window("s1:2");
-    env.set_active("s1:2");
-    env.close_window(&closing);
-
-    env.ok(&["emptied", "s1:2"]);
-    assert_eq!(env.active(), "s1:3", "the next tab with windows");
-
-    let closing = env.add_window("s1:4");
-    env.set_active("s1:4");
-    env.close_window(&closing);
-    env.ok(&["emptied", "s1:4"]);
-    assert_eq!(env.active(), "s1:3", "none after it: the one before");
-}
-
-#[test]
-fn closing_a_spaces_last_window_ends_it() {
-    let env = Env::new();
-    env.add_window("1");
-    env.add_terminal("s2:1", &env.dir("mail"));
-    let last = env.add_terminal("s1:2", &env.dir("notes"));
-    env.ok(&["go", "mail"]);
-    env.ok(&["go", "notes"]);
-    assert_eq!(env.active(), "s1:2");
-
-    env.close_window(&last);
-    env.ok(&["emptied", "s1:2"]);
-    assert_eq!(env.active(), "s2:1", "back to the space you were in before");
-    let labels: Vec<String> = env
-        .ls_json()
-        .iter()
-        .map(|r| r["label"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(labels, ["home", "mail"]);
-    let visits = fs::read_to_string(env.state().join("last")).unwrap();
-    assert!(!visits.contains("s1\t"), "{visits}");
-
-    // The last space of all: home.
-    let only = env.newest_window();
-    assert_eq!(env.windows().last().unwrap(), "s2:1");
-    env.close_window(&only);
-    env.ok(&["emptied", "s2:1"]);
-    assert_eq!(env.active(), "1");
-}
-
-#[test]
-fn emptied_does_nothing_once_things_have_moved_on() {
-    let env = Env::new();
-    env.add_window("s1:1");
-    env.set_active("s1:2");
-    // You already left it, or it isn't empty, or it's one of home's.
-    env.ok(&["emptied", "s1:3"]);
-    env.ok(&["emptied", "s1:1"]);
-    env.set_active("s1:1");
-    env.ok(&["emptied", "s1:1"]);
-    env.set_active("2");
-    env.ok(&["emptied", "2"]);
-    assert!(env.dispatched().is_empty());
-    assert_eq!(env.active(), "2");
-}
-
-#[test]
 fn each_monitor_has_its_own_tabs() {
     let env = Env::new();
     env.add_window("s1:1");
@@ -3103,33 +3039,6 @@ fn a_new_space_and_a_new_tab_open_on_this_monitor() {
     assert_eq!(env.windows().last().unwrap(), "s1:1");
     env.ok(&["tab", "new"]);
     assert_eq!(env.active(), "s1:2");
-}
-
-#[test]
-fn a_space_ends_only_once_no_monitor_has_any_of_its_windows() {
-    let env = Env::new();
-    env.add_window("1");
-    let here = env.add_window("s1:1");
-    let there = env.add_window("s1:12");
-    let beside = env.add_window("s1:11");
-    env.set_active("s1:1");
-    env.plug_in("s1:12");
-
-    // Its last one on this monitor: you stay, as the other has more.
-    env.close_window(&here);
-    env.ok(&["emptied", "s1:1"]);
-    assert_eq!(env.active(), "s1:1");
-
-    // The other monitor goes on to its next tab, without you.
-    env.close_window(&there);
-    env.ok(&["emptied", "s1:12"]);
-    assert_eq!(env.active(), "s1:1");
-    assert_eq!(env.elsewhere(), "s1:11");
-
-    // The last of all ends it, on whichever monitor.
-    env.close_window(&beside);
-    env.ok(&["emptied", "s1:11"]);
-    assert_eq!(env.active(), "1");
 }
 
 #[test]

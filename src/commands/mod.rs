@@ -12,7 +12,7 @@ pub use space::{
     step,
 };
 pub use tab::{
-    NewTabOptions, Target, close_tab, emptied, go_to_named_tab, go_to_tab, new_tab_cmd, rename_tab,
+    NewTabOptions, Target, close_tab, go_to_named_tab, go_to_tab, new_tab_cmd, rename_tab,
     renumber, reorder_tab, send_tab,
 };
 pub use window::{send_window, window_to_tab};
