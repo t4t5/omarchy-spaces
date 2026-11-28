@@ -1,5 +1,5 @@
 //! Tab-level commands: `tab new`, `tab go`, `tab next`/`prev`, `tab rename`,
-//! `tab reorder`, `tab close`, `tab send`, and `emptied`.
+//! `tab reorder`, `tab close`, and `tab send`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -559,9 +559,9 @@ pub fn rename_tab(tab: Option<String>, new_name: String) -> Result<()> {
 }
 
 /// `space tab close [tab]`: closes every window on a tab, the one you
-/// are on by default, which ends it. If you are on it, you go to another of
-/// the space's tabs, as when its last window closes (`emptied`), and closing
-/// its only tab ends the space. `home` doesn't end: you stay on its last tab.
+/// are on by default, which ends it. If you are on it, you go to the next
+/// of the space's tabs with windows, else the one before, and closing its
+/// only tab ends the space. `home` doesn't end: you stay on its last tab.
 pub fn close_tab(tab: Option<String>) -> Result<()> {
     let hypr = Hypr::from_env()?;
     let _tabs = hold_tabs()?;
@@ -887,38 +887,6 @@ fn leave_tab(hypr: &Hypr, id: &str, key: u8, from: &hypr::Workspace, focused: bo
     // back to.
     forget(id);
     Ok(())
-}
-
-/// `space emptied <workspace>`, run by Hyprland (`hypr/omarchy-spaces.lua`) when
-/// closing a window left a workspace that a monitor shows empty. An emptied
-/// tab doesn't linger: see `leave_tab`. Nothing happens if things moved on
-/// since: no monitor shows that workspace, or something opened on it.
-pub fn emptied(workspace: &str) -> Result<()> {
-    let _tabs = hold_tabs()?;
-    emptied_held(workspace)
-}
-
-/// `emptied`, by a command already holding the tabs.
-pub(super) fn emptied_held(workspace: &str) -> Result<()> {
-    let hypr = Hypr::from_env()?;
-    let active = hypr.active_workspace()?;
-    let workspaces = hypr.workspaces()?;
-    let Some(emptied) = workspaces.iter().find(|ws| ws.name == workspace) else {
-        return Ok(());
-    };
-    let focused = active.name == workspace;
-    let shown = focused
-        || hypr.monitors()?.iter().any(|monitor| {
-            let shows = monitor.shows.as_ref();
-            shows.is_some_and(|ws| ws.name == workspace)
-        });
-    if !shown || emptied.windows > 0 {
-        return Ok(());
-    }
-    let Location::Space { name: id, key } = name::locate(emptied.id, &emptied.name) else {
-        return Ok(());
-    };
-    leave_tab(&hypr, &id, key, emptied, focused)
 }
 
 /// `space renumber`, run by Hyprland (`hypr/omarchy-spaces.lua`) whenever a

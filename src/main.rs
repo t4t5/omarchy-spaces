@@ -129,10 +129,6 @@ enum Cmd {
     /// the conversation that was in it.
     #[command(hide = true)]
     Shell,
-    /// Run by Hyprland when closing a window empties the workspace you are
-    /// on: go to another tab, or end the space.
-    #[command(hide = true)]
-    Emptied { workspace: String },
     /// Run by Hyprland as a workspace comes or goes: number each space's tabs
     /// 1, 2, 3, ... again, closing the gap one that ended left.
     #[command(hide = true)]
@@ -376,7 +372,6 @@ fn main() -> ExitCode {
         Cmd::Events { types, no_snapshot } => events::events(types, no_snapshot),
         Cmd::Watch { sounds } => watch::watch(sounds),
         Cmd::Shell => shell::shell(),
-        Cmd::Emptied { workspace } => commands::emptied(&workspace),
         Cmd::Renumber => commands::renumber(),
         Cmd::Tab(command) => run_tab(command),
         Cmd::Window(WindowCmd::Send { space, silent }) => commands::send_window(space, silent),

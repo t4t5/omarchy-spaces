@@ -8,7 +8,7 @@ You need Omarchy 4.5 or newer, on x86-64 or ARM64. To install, follow the steps 
 |---|---|---|
 | The plugin | `~/.config/omarchy/plugins/com.t4t5.spaces` | Draws the sidebar and the tabs |
 | The `space` command | `~/.local/bin/space` | Does the work. Downloaded as the plugin first starts: the build for the plugin's version from its GitHub release, checked against the release's checksum |
-| The Hyprland part | `~/.config/hypr/omarchy-spaces.lua`, a link into the plugin | Keeps every monitor on the same space, moves you on when you close a tab's last window, and holds the [actions for your keys](keys.md) |
+| The Hyprland part | `~/.config/hypr/omarchy-spaces.lua`, a link into the plugin | Keeps every monitor on the same space and holds the [actions for your keys](keys.md) |
 
 The plugin runs `install.sh --setup` as it starts, which puts in place what's missing of these. It binds no keys.
 

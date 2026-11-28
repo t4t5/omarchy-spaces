@@ -478,29 +478,6 @@ local M = {
   internal = { sync = sync, show = show_tab },
 }
 
--- A tab emptied by closing its last window doesn't linger, however the
--- window went (super+w, `exit` in a terminal, an app quitting): `space
--- emptied` has its monitor go on to another of the space's tabs there. With
--- none there, it stays on it, empty, or, with none on any monitor, the space
--- ends and you go back to where you were before it. Only a close gets
--- here, so an empty workspace you go to yourself stays. The closing window
--- still counts until the next loop, so look then.
-hl.on("window.close", function(window)
-  local name = window and window.workspace and window.workspace.name
-  local space = locate(window and window.workspace)
-  if not space or space == "home" then
-    return
-  end
-  hl.timer(function()
-    for _, monitor in ipairs(monitors()) do
-      local shown = monitor.active_workspace
-      if shown and shown.name == name and shown.windows == 0 then
-        hl.dispatch(hl.dsp.exec_cmd("space emptied " .. name))
-      end
-    end
-  end, { timeout = 1, type = "oneshot" })
-end)
-
 -- A glassy bar (double-click it to cycle opaque, glassy, clear) has Hyprland
 -- blur what is behind it. The sidebar follows the bar's look, so blur behind
 -- it too. `omarchy bar background` adds or removes this toggle file and

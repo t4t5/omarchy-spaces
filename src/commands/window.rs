@@ -3,7 +3,6 @@
 use anyhow::Result;
 
 use super::space::{landing_tab, neighbour};
-use super::tab::emptied_held;
 use super::{SpaceTarget, forget, hold_tabs, remember, selector, take_turn};
 use crate::hypr::{self, Hypr};
 use crate::live;
@@ -48,7 +47,7 @@ pub fn window_to_tab(slot: u8, silent: bool) -> Result<()> {
 
 /// `space window send <space|next|prev>`: the focused window to another space, on
 /// the tab you'd land on going there, and you with it unless `silent`. Sent
-/// silently, a tab it leaves empty gives way as closing its last window does.
+/// silently, a tab it leaves empty stays until you leave it.
 pub fn send_window(target: SpaceTarget, silent: bool) -> Result<()> {
     let hypr = Hypr::from_env()?;
     let _turn = matches!(target, SpaceTarget::Next | SpaceTarget::Prev)
@@ -93,7 +92,7 @@ pub fn send_window(target: SpaceTarget, silent: bool) -> Result<()> {
     }
 
     if silent {
-        return emptied_held(&active.name);
+        return Ok(());
     }
     // Where you left the space, unless that was its last window and it's
     // gone.
